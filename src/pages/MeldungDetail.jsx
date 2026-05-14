@@ -115,7 +115,8 @@ function ServiceChatPanel({ chat, meldungId, session }) {
   const [messages,  setMessages]  = useState([])
   const [input,     setInput]     = useState('')
   const [sending,   setSending]   = useState(false)
-  const [closing,   setClosing]   = useState(false)
+  const [closing,     setClosing]     = useState(false)
+  const [reactivating, setReactivating] = useState(false)
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -165,6 +166,16 @@ function ServiceChatPanel({ chat, meldungId, session }) {
     if (error) console.error('[ServiceChat] Schließen:', error)
   }
 
+  const reactivateChat = async () => {
+    setReactivating(true)
+    const { error } = await supabase
+      .from('service_chats')
+      .update({ is_active: true, closed_at: null })
+      .eq('id', chat.id)
+    setReactivating(false)
+    if (error) console.error('[ServiceChat] Reaktivieren:', error)
+  }
+
   const label = chat.participant_role === 'melder' ? 'Melder' : 'Gemeldeter'
 
   return (
@@ -179,6 +190,13 @@ function ServiceChatPanel({ chat, meldungId, session }) {
             className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all disabled:opacity-50"
             style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}>
             {closing ? '…' : 'Chat schließen'}
+          </button>
+        )}
+        {!chat.is_active && (
+          <button onClick={reactivateChat} disabled={reactivating}
+            className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all disabled:opacity-50"
+            style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.25)', color: '#86efac' }}>
+            {reactivating ? '…' : 'Reaktivieren'}
           </button>
         )}
       </div>
