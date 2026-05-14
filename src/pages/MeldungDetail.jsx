@@ -160,6 +160,10 @@ export default function MeldungDetail() {
   }, [id])
 
   const handleSave = async () => {
+    if (status === 'erledigt' && !adminNotizen.trim()) {
+      setError('Bitte fülle die internen Notizen aus, bevor du die Meldung als erledigt markierst.')
+      return
+    }
     setSaving(true); setSaved(false)
 
     const { error: saveErr } = await supabase

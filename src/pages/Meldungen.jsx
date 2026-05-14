@@ -6,6 +6,8 @@ import TypBadge                              from '../components/TypBadge'
 
 const fmt = (d) => new Date(d).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
+const TYP_ORDER = { sexuelle_belaestigung: 0, gewaltandrohung: 1, fehler: 2 }
+
 export default function Meldungen() {
   const navigate = useNavigate()
 
@@ -39,9 +41,14 @@ export default function Meldungen() {
     load().then(undefined, (err) => setError(err.message))
   }, [load])
 
-  const filtered = search.trim()
+  const filtered = (search.trim()
     ? meldungen.filter(m => m.beschreibung.toLowerCase().includes(search.toLowerCase()))
     : meldungen
+  ).slice().sort((a, b) => {
+    const typDiff = (TYP_ORDER[a.typ] ?? 99) - (TYP_ORDER[b.typ] ?? 99)
+    if (typDiff !== 0) return typDiff
+    return new Date(b.created_at) - new Date(a.created_at)
+  })
 
   return (
     <div className="p-8">
