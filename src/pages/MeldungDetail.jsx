@@ -24,7 +24,7 @@ function exportChatPdf(meldung, nachrichten) {
   doc.setTextColor(120)
   doc.text(`ID: ${meldung.id}`, 14, 26)
   doc.text(`Typ: ${meldung.typ}  |  Datum: ${fmt(meldung.created_at)}`, 14, 31)
-  doc.text(`Melder: ${meldung.melder?.name ?? '—'}  |  Gemeldeter: ${meldung.gemeldeter?.name ?? meldung.gemeldeter_user_name ?? '—'}`, 14, 36)
+  doc.text(`Melder: ${meldung.melder?.name ?? '-'}  |  Gemeldeter: ${meldung.gemeldeter?.name ?? meldung.gemeldeter_user_name ?? '-'}`, 14, 36)
 
   autoTable(doc, {
     startY: 42,
@@ -32,8 +32,8 @@ function exportChatPdf(meldung, nachrichten) {
     body: nachrichten.map(m => [
       fmt(m.sent_at),
       m.sender_is_melder ? 'Melder' : 'Gemeldeter',
-      m.message_type === 'image' ? '📷 Bild' + (m.media_url ? ` (${m.media_url})` : '')
-        : m.message_type === 'audio' ? '🎤 Sprachnachricht' + (m.media_url ? ` (${m.media_url})` : '')
+      m.message_type === 'image' ? '[Bild]'
+        : m.message_type === 'audio' ? '[Sprachnachricht]'
         : (m.text ?? ''),
     ]),
     styles: { fontSize: 8, cellPadding: 3 },
@@ -42,6 +42,33 @@ function exportChatPdf(meldung, nachrichten) {
   })
 
   doc.save(`meldung-${meldung.id.slice(0, 8)}-chat.pdf`)
+}
+
+function exportServiceChatPdf(meldung, messages, label) {
+  const doc = new jsPDF()
+  doc.setFontSize(14)
+  doc.setTextColor(40)
+  doc.text(`Service-Chat mit ${label}`, 14, 18)
+  doc.setFontSize(9)
+  doc.setTextColor(120)
+  doc.text(`Meldung-ID: ${meldung.id}`, 14, 26)
+  doc.text(`Typ: ${meldung.typ}  |  Datum: ${fmt(meldung.created_at)}`, 14, 31)
+  doc.text(`Melder: ${meldung.melder?.name ?? '-'}  |  Gemeldeter: ${meldung.gemeldeter?.name ?? meldung.gemeldeter_user_name ?? '-'}`, 14, 36)
+
+  autoTable(doc, {
+    startY: 42,
+    head: [['Zeit', 'Von', 'Inhalt']],
+    body: messages.map(m => [
+      fmt(m.created_at),
+      m.sender_role === 'admin' ? 'Service' : label,
+      m.text ?? '',
+    ]),
+    styles: { fontSize: 8, cellPadding: 3 },
+    headStyles: { fillColor: [22, 27, 34], textColor: 255, fontStyle: 'bold' },
+    columnStyles: { 0: { cellWidth: 35 }, 1: { cellWidth: 25 } },
+  })
+
+  doc.save(`service-chat-${meldung.id.slice(0, 8)}-${label.toLowerCase()}.pdf`)
 }
 
 function AudioPlayer({ src }) {
@@ -111,11 +138,11 @@ function ChatMessage({ msg }) {
   )
 }
 
-function ServiceChatPanel({ chat, meldungId, session }) {
-  const [messages,  setMessages]  = useState([])
-  const [input,     setInput]     = useState('')
-  const [sending,   setSending]   = useState(false)
-  const [closing,     setClosing]     = useState(false)
+function ServiceChatPanel({ chat, meldungId, meldung, session }) {
+  const [messages,     setMessages]     = useState([])
+  const [input,        setInput]        = useState('')
+  const [sending,      setSending]      = useState(false)
+  const [closing,      setClosing]      = useState(false)
   const [reactivating, setReactivating] = useState(false)
   const bottomRef = useRef(null)
 
@@ -168,6 +195,15 @@ function ServiceChatPanel({ chat, meldungId, session }) {
 
   const reactivateChat = async () => {
     setReactivating(true)
+    // Erst ggf. anderen aktiven Chat für gleiche Rolle schließen (verhindert Unique-Index-Fehler)
+    await supabase
+      .from('service_chats')
+      .update({ is_active: false, closed_at: new Date().toISOString() })
+      .eq('meldung_id', meldungId)
+      .eq('participant_role', chat.participant_role)
+      .eq('is_active', true)
+      .neq('id', chat.id)
+
     const { error } = await supabase
       .from('service_chats')
       .update({ is_active: true, closed_at: null })
@@ -185,20 +221,29 @@ function ServiceChatPanel({ chat, meldungId, session }) {
           <p className="text-xs font-semibold text-white">Service-Chat mit {label}</p>
           <p className="text-xs text-gray-500 mt-0.5">{chat.is_active ? '🟢 Aktiv' : '🔴 Geschlossen'}</p>
         </div>
-        {chat.is_active && (
-          <button onClick={closeChat} disabled={closing}
-            className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all disabled:opacity-50"
-            style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}>
-            {closing ? '…' : 'Chat schließen'}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => meldung && exportServiceChatPdf(meldung, messages, label)}
+            disabled={messages.length === 0 || !meldung}
+            className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all disabled:opacity-30"
+            style={{ background: 'rgba(38,140,251,0.12)', border: '1px solid rgba(38,140,251,0.25)', color: '#7dd3fc' }}>
+            PDF
           </button>
-        )}
-        {!chat.is_active && (
-          <button onClick={reactivateChat} disabled={reactivating}
-            className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all disabled:opacity-50"
-            style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.25)', color: '#86efac' }}>
-            {reactivating ? '…' : 'Reaktivieren'}
-          </button>
-        )}
+          {chat.is_active && (
+            <button onClick={closeChat} disabled={closing}
+              className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all disabled:opacity-50"
+              style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}>
+              {closing ? '…' : 'Schliessen'}
+            </button>
+          )}
+          {!chat.is_active && (
+            <button onClick={reactivateChat} disabled={reactivating}
+              className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all disabled:opacity-50"
+              style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.25)', color: '#86efac' }}>
+              {reactivating ? '…' : 'Reaktivieren'}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
@@ -582,7 +627,7 @@ export default function MeldungDetail() {
                 )}
               </div>
               {melderChat
-                ? <ServiceChatPanel chat={melderChat} meldungId={id} session={session} />
+                ? <ServiceChatPanel chat={melderChat} meldungId={id} meldung={meldung} session={session} />
                 : <p className="text-xs text-gray-600 py-2">Noch kein Chat geöffnet.</p>
               }
             </div>
@@ -601,7 +646,7 @@ export default function MeldungDetail() {
                   )}
                 </div>
                 {gemeldeterChat
-                  ? <ServiceChatPanel chat={gemeldeterChat} meldungId={id} session={session} />
+                  ? <ServiceChatPanel chat={gemeldeterChat} meldungId={id} meldung={meldung} session={session} />
                   : <p className="text-xs text-gray-600 py-2">Noch kein Chat geöffnet.</p>
                 }
               </div>
