@@ -372,15 +372,29 @@ export default function MeldungDetail() {
 
   const openServiceChat = async (role) => {
     const userId = role === 'melder' ? meldung?.melder?.id : meldung?.gemeldeter?.id
-    if (!userId) return
+    if (!userId || openingChat) return
     setOpeningChat(role)
-    const { error } = await supabase.from('service_chats').insert({
-      meldung_id:       id,
-      participant_id:   userId,
-      participant_role: role,
-    })
+
+    const { data: newChat, error } = await supabase
+      .from('service_chats')
+      .insert({
+        meldung_id:       id,
+        participant_id:   userId,
+        participant_role: role,
+      })
+      .select('id, participant_id, participant_role, is_active, created_at, closed_at')
+      .single()
+
     setOpeningChat(null)
-    if (error) console.error('[ServiceChat] Öffnen:', error)
+    if (error) {
+      console.error('[ServiceChat] Öffnen:', error)
+      return
+    }
+    // Sofort in den State schreiben – kein Warten auf Realtime
+    setServiceChats(prev => {
+      if (prev.some(c => c.id === newChat.id)) return prev
+      return [...prev, newChat]
+    })
   }
 
   if (loading) return <div className="p-8 text-gray-400 text-sm">Lade Meldung…</div>
@@ -542,7 +556,7 @@ export default function MeldungDetail() {
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-semibold text-gray-400">Chat mit Melder{meldung.melder ? ` (${meldung.melder.name})` : ''}</p>
                 {!melderChat && meldung.melder?.id && (
-                  <button onClick={() => openServiceChat('melder')} disabled={openingChat === 'melder'}
+                  <button onClick={() => openServiceChat('melder')} disabled={!!openingChat}
                     className="px-3 py-1 rounded-lg text-xs font-medium text-white disabled:opacity-50 transition-all"
                     style={{ background: 'linear-gradient(90deg, #E22880, #268CFB)' }}>
                     {openingChat === 'melder' ? '…' : 'Chat öffnen'}
@@ -561,7 +575,7 @@ export default function MeldungDetail() {
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs font-semibold text-gray-400">Chat mit Gemeldeten ({meldung.gemeldeter.name})</p>
                   {!gemeldeterChat && (
-                    <button onClick={() => openServiceChat('gemeldeter')} disabled={openingChat === 'gemeldeter'}
+                    <button onClick={() => openServiceChat('gemeldeter')} disabled={!!openingChat}
                       className="px-3 py-1 rounded-lg text-xs font-medium text-white disabled:opacity-50 transition-all"
                       style={{ background: 'linear-gradient(90deg, #E22880, #268CFB)' }}>
                       {openingChat === 'gemeldeter' ? '…' : 'Chat öffnen'}
