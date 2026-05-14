@@ -104,6 +104,7 @@ export default function MeldungDetail() {
 
   const [status,       setStatus]       = useState('neu')
   const [adminNotizen, setAdminNotizen] = useState('')
+  const [showChat,     setShowChat]     = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -285,28 +286,61 @@ export default function MeldungDetail() {
           <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{meldung.beschreibung}</p>
         </div>
 
-        {/* Chat-Verlauf */}
-        <div className="rounded-2xl overflow-hidden" style={card}>
-          <div className="px-5 py-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
-            <p className="text-sm font-semibold text-white">
-              Chat-Verlauf
-              <span className="ml-2 text-xs font-normal text-gray-500">({nachrichten.length} Nachrichten)</span>
-            </p>
-            {nachrichten.length > 0 && (
-              <div className="flex gap-4 mt-1 text-xs text-gray-500">
-                <span><span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ background: 'rgba(239,68,68,0.4)' }} />Gemeldeter User</span>
-                <span><span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ background: 'rgba(255,255,255,0.15)' }} />Melder</span>
+        {/* Chat-Verlauf – Button */}
+        <button
+          onClick={() => setShowChat(true)}
+          className="p-5 rounded-2xl text-left w-full flex items-center justify-between transition-all hover:brightness-110"
+          style={card}
+        >
+          <div>
+            <p className="text-sm font-semibold text-white">Chat-Verlauf anzeigen</p>
+            <p className="text-xs text-gray-500 mt-0.5">{nachrichten.length} Nachrichten gespeichert</p>
+          </div>
+          <span className="text-gray-400 text-lg">›</span>
+        </button>
+
+        {/* Chat-Verlauf – Modal */}
+        {showChat && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: 'rgba(0,0,0,0.8)' }}
+            onClick={() => setShowChat(false)}
+          >
+            <div
+              className="w-full max-w-lg rounded-2xl flex flex-col overflow-hidden"
+              style={{ background: '#161b22', border: '1px solid rgba(255,255,255,0.1)', maxHeight: '80vh' }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="px-5 py-4 flex items-center justify-between border-b flex-shrink-0"
+                style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+                <div>
+                  <p className="text-sm font-semibold text-white">
+                    Chat-Verlauf
+                    <span className="ml-2 text-xs font-normal text-gray-500">({nachrichten.length} Nachrichten)</span>
+                  </p>
+                  {nachrichten.length > 0 && (
+                    <div className="flex gap-4 mt-1 text-xs text-gray-500">
+                      <span><span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ background: 'rgba(239,68,68,0.4)' }} />Gemeldeter</span>
+                      <span><span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ background: 'rgba(255,255,255,0.15)' }} />Melder</span>
+                    </div>
+                  )}
+                </div>
+                <button onClick={() => setShowChat(false)}
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-gray-400 hover:text-white transition-colors"
+                  style={{ background: 'rgba(255,255,255,0.06)' }}>
+                  ✕
+                </button>
               </div>
-            )}
+              <div className="p-5 overflow-y-auto flex-1">
+                {nachrichten.length === 0 ? (
+                  <p className="text-sm text-gray-500">Kein Chat-Verlauf gespeichert.</p>
+                ) : (
+                  nachrichten.map(m => <ChatMessage key={m.id} msg={m} />)
+                )}
+              </div>
+            </div>
           </div>
-          <div className="p-5 max-h-[500px] overflow-y-auto">
-            {nachrichten.length === 0 ? (
-              <p className="text-sm text-gray-500">Kein Chat-Verlauf gespeichert.</p>
-            ) : (
-              nachrichten.map(m => <ChatMessage key={m.id} msg={m} />)
-            )}
-          </div>
-        </div>
+        )}
 
         {/* Bearbeitung */}
         <div className="p-5 rounded-2xl flex flex-col gap-4" style={card}>
