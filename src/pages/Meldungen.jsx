@@ -7,15 +7,17 @@ import TypBadge                              from '../components/TypBadge'
 const fmt = (d) => new Date(d).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
 export default function Meldungen() {
-  const navigate             = useNavigate()
-  const [searchParams]       = useSearchParams()
+  const navigate                    = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // filterTyp kommt immer direkt aus der URL – so reagiert er auf Sidebar-Links
+  const filterTyp = searchParams.get('typ') ?? 'alle'
 
   const [meldungen, setMeldungen] = useState([])
   const [loading,   setLoading]   = useState(true)
   const [error,     setError]     = useState(null)
   const [search,    setSearch]    = useState('')
   const [filterStatus, setFilterStatus] = useState('alle')
-  const [filterTyp,    setFilterTyp]    = useState(searchParams.get('typ') ?? 'alle')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -76,7 +78,10 @@ export default function Meldungen() {
 
         <select
           value={filterTyp}
-          onChange={e => setFilterTyp(e.target.value)}
+          onChange={e => {
+            const val = e.target.value
+            if (val === 'alle') { setSearchParams({}); } else { setSearchParams({ typ: val }) }
+          }}
           className="px-4 py-2 rounded-xl text-sm text-white bg-navy-light border border-white/10 outline-none focus:border-white/30 transition-colors"
         >
           <option value="alle">Alle Typen</option>
