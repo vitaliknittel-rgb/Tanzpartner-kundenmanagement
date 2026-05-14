@@ -1,22 +1,21 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate }                       from 'react-router-dom'
+import { useNavigate, useSearchParams }      from 'react-router-dom'
 import { supabase }                          from '../lib/supabase'
 import StatusBadge                           from '../components/StatusBadge'
 import TypBadge                              from '../components/TypBadge'
 
 const fmt = (d) => new Date(d).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
-const TYP_ORDER = { sexuelle_belaestigung: 0, gewaltandrohung: 1, fehler: 2 }
-
 export default function Meldungen() {
-  const navigate = useNavigate()
+  const navigate             = useNavigate()
+  const [searchParams]       = useSearchParams()
 
   const [meldungen, setMeldungen] = useState([])
   const [loading,   setLoading]   = useState(true)
   const [error,     setError]     = useState(null)
   const [search,    setSearch]    = useState('')
   const [filterStatus, setFilterStatus] = useState('alle')
-  const [filterTyp,    setFilterTyp]    = useState('alle')
+  const [filterTyp,    setFilterTyp]    = useState(searchParams.get('typ') ?? 'alle')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -41,14 +40,9 @@ export default function Meldungen() {
     load().then(undefined, (err) => setError(err.message))
   }, [load])
 
-  const filtered = (search.trim()
+  const filtered = search.trim()
     ? meldungen.filter(m => m.beschreibung.toLowerCase().includes(search.toLowerCase()))
     : meldungen
-  ).slice().sort((a, b) => {
-    const typDiff = (TYP_ORDER[a.typ] ?? 99) - (TYP_ORDER[b.typ] ?? 99)
-    if (typDiff !== 0) return typDiff
-    return new Date(b.created_at) - new Date(a.created_at)
-  })
 
   return (
     <div className="p-8">
