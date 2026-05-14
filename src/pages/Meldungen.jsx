@@ -18,6 +18,8 @@ export default function Meldungen() {
   const [error,     setError]     = useState(null)
   const [search,    setSearch]    = useState('')
   const [filterStatus, setFilterStatus] = useState('alle')
+  const [sortCol, setSortCol] = useState('created_at')
+  const [sortDir, setSortDir] = useState('desc')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -42,9 +44,29 @@ export default function Meldungen() {
     load().then(undefined, (err) => setError(err.message))
   }, [load])
 
-  const filtered = search.trim()
+  const TYP_ORDER = { sexuelle_belaestigung: 0, gewaltandrohung: 1, fehler: 2 }
+  const STATUS_ORDER = { neu: 0, in_bearbeitung: 1, erledigt: 2 }
+
+  const handleSort = (col) => {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(col); setSortDir('asc') }
+  }
+
+  const sortArrow = (col) => sortCol === col ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''
+
+  const filtered = (search.trim()
     ? meldungen.filter(m => m.beschreibung.toLowerCase().includes(search.toLowerCase()))
     : meldungen
+  ).slice().sort((a, b) => {
+    let va, vb
+    if (sortCol === 'created_at') { va = new Date(a.created_at); vb = new Date(b.created_at) }
+    else if (sortCol === 'typ')   { va = TYP_ORDER[a.typ] ?? 9;  vb = TYP_ORDER[b.typ] ?? 9 }
+    else if (sortCol === 'status'){ va = STATUS_ORDER[a.status] ?? 9; vb = STATUS_ORDER[b.status] ?? 9 }
+    else { va = a[sortCol]; vb = b[sortCol] }
+    if (va < vb) return sortDir === 'asc' ? -1 : 1
+    if (va > vb) return sortDir === 'asc' ?  1 : -1
+    return 0
+  })
 
   return (
     <div className="p-8">
@@ -106,9 +128,9 @@ export default function Meldungen() {
           <table className="w-full">
             <thead>
               <tr className="text-left border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-                <th className="px-5 py-3 text-xs font-semibold text-gray-500 whitespace-nowrap">Datum</th>
-                <th className="px-5 py-3 text-xs font-semibold text-gray-500">Typ</th>
-                <th className="px-5 py-3 text-xs font-semibold text-gray-500">Status</th>
+                <th className="px-5 py-3 text-xs font-semibold text-gray-500 whitespace-nowrap cursor-pointer select-none hover:text-white transition-colors" onClick={() => handleSort('created_at')}>Datum{sortArrow('created_at')}</th>
+                <th className="px-5 py-3 text-xs font-semibold text-gray-500 cursor-pointer select-none hover:text-white transition-colors" onClick={() => handleSort('typ')}>Typ{sortArrow('typ')}</th>
+                <th className="px-5 py-3 text-xs font-semibold text-gray-500 cursor-pointer select-none hover:text-white transition-colors" onClick={() => handleSort('status')}>Status{sortArrow('status')}</th>
                 <th className="px-5 py-3 text-xs font-semibold text-gray-500 hidden lg:table-cell">Beschreibung</th>
                 <th className="px-5 py-3 text-xs font-semibold text-gray-500 hidden md:table-cell">Melder</th>
                 <th className="px-5 py-3 text-xs font-semibold text-gray-500 hidden xl:table-cell">Gemeldeter User</th>
