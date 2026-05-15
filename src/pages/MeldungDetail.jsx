@@ -473,8 +473,8 @@ function ServiceChatPanel({ chat, meldungId, meldung, session }) {
         {messages.map(m => {
           const isAdmin = m.sender_role === 'admin'
           const bubbleStyle = isAdmin
-            ? { background: 'linear-gradient(90deg, rgba(226,40,128,0.25), rgba(38,140,251,0.25))', border: '1px solid rgba(226,40,128,0.3)' }
-            : { background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }
+            ? { background: 'linear-gradient(90deg, rgba(226,40,128,0.25), rgba(38,140,251,0.25))', border: '1px solid rgba(226,40,128,0.3)', whiteSpace: 'pre-wrap' }
+            : { background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)', whiteSpace: 'pre-wrap' }
           return (
             <div key={m.id} className={`flex ${isAdmin ? 'justify-end' : 'justify-start'}`}>
               <div className="max-w-[75%]">
