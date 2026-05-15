@@ -22,6 +22,44 @@ const ACTION_LABELS = {
   suspended_user: 'Benutzer-Status geändert',
 }
 
+const AUDIT_PREVIEW = 3
+
+function AuditLogList({ logs }) {
+  const [expanded, setExpanded] = useState(false)
+  const visible = expanded ? logs : logs.slice(0, AUDIT_PREVIEW)
+  return (
+    <div className="px-5 pb-4 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+      <p className="text-xs font-semibold text-gray-500 mt-3 mb-2">
+        Zugriffsprotokoll
+        <span className="ml-1.5 font-normal text-gray-600">({logs.length})</span>
+      </p>
+      <div className="flex flex-col gap-1.5">
+        {visible.map(log => (
+          <div key={log.id} className="flex items-start gap-2 text-xs">
+            <span className="text-gray-600 flex-shrink-0 tabular-nums">{fmt(log.created_at)}</span>
+            <span className="font-medium" style={{ color: 'rgba(255,255,255,0.55)' }}>
+              {log.moderator_email ?? '—'}
+            </span>
+            <span className="text-gray-500">·</span>
+            <span style={{ color: 'rgba(255,255,255,0.35)' }}>
+              {ACTION_LABELS[log.action] ?? log.action}
+              {log.reason ? ` (${log.reason})` : ''}
+            </span>
+          </div>
+        ))}
+      </div>
+      {logs.length > AUDIT_PREVIEW && (
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="mt-2 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+        >
+          {expanded ? '▲ Weniger anzeigen' : `▼ ${logs.length - AUDIT_PREVIEW} weitere anzeigen`}
+        </button>
+      )}
+    </div>
+  )
+}
+
 function addPdfWatermarkAndFooter(doc, meta) {
   const { exportId, moderatorEmail, exportedAt } = meta
   const totalPages = doc.internal.getNumberOfPages()
@@ -756,24 +794,7 @@ export default function MeldungDetail() {
           </button>
 
           {auditLogs.length > 0 && (
-            <div className="px-5 pb-4 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-              <p className="text-xs font-semibold text-gray-500 mt-3 mb-2">Zugriffsprotokoll</p>
-              <div className="flex flex-col gap-1.5">
-                {auditLogs.map(log => (
-                  <div key={log.id} className="flex items-start gap-2 text-xs">
-                    <span className="text-gray-600 flex-shrink-0 tabular-nums">{fmt(log.created_at)}</span>
-                    <span className="font-medium" style={{ color: 'rgba(255,255,255,0.55)' }}>
-                      {log.moderator_email ?? '—'}
-                    </span>
-                    <span className="text-gray-500">·</span>
-                    <span style={{ color: 'rgba(255,255,255,0.35)' }}>
-                      {ACTION_LABELS[log.action] ?? log.action}
-                      {log.reason ? ` (${log.reason})` : ''}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <AuditLogList logs={auditLogs} />
           )}
         </div>
 
