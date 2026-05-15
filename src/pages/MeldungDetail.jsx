@@ -144,12 +144,14 @@ function ServiceChatPanel({ chat, meldungId, meldung, session }) {
   const [sending,      setSending]      = useState(false)
   const [closing,      setClosing]      = useState(false)
   const [reactivating, setReactivating] = useState(false)
-  const bottomRef = useRef(null)
+  const [lightbox,     setLightbox]     = useState(null)
+  const bottomRef  = useRef(null)
+  const fileRef    = useRef(null)
 
   useEffect(() => {
     supabase
       .from('service_messages')
-      .select('id, sender_id, sender_role, text, created_at')
+      .select('id, sender_id, sender_role, text, media_url, created_at')
       .eq('chat_id', chat.id)
       .order('created_at', { ascending: true })
       .then(({ data }) => setMessages(data ?? []), (err) => console.error('[ServiceChat] Laden:', err))
@@ -168,46 +170,71 @@ function ServiceChatPanel({ chat, meldungId, meldung, session }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  const compressAndUpload = async (file) => {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image()
+      i.onload = () => resolve(i)
+      i.onerror = reject
+      i.src = URL.createObjectURL(file)
+    })
+    const MAX = 1200
+    let { width, height } = img
+    if (width > MAX) { height = Math.round(height * MAX / width); width = MAX }
+    if (height > MAX) { width = Math.round(width * MAX / height); height = MAX }
+    const canvas = document.createElement('canvas')
+    canvas.width = width; canvas.height = height
+    canvas.getContext('2d').drawImage(img, 0, 0, width, height)
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85))
+    const path = `${session?.user?.id}/service-chat/${chat.id}-${Date.now()}.jpg`
+    const { error: upErr } = await supabase.storage.from('event-images').upload(path, blob, { contentType: 'image/jpeg' })
+    if (upErr) throw upErr
+    return supabase.storage.from('event-images').getPublicUrl(path).data.publicUrl
+  }
+
   const send = async () => {
     if (!input.trim() || sending) return
     const text = input.trim()
     setInput('')
     setSending(true)
     const { error } = await supabase.from('service_messages').insert({
-      chat_id:     chat.id,
-      sender_id:   session?.user?.id,
-      sender_role: 'admin',
-      text,
+      chat_id: chat.id, sender_id: session?.user?.id, sender_role: 'admin', text,
     })
     setSending(false)
     if (error) console.error('[ServiceChat] Senden:', error)
   }
 
+  const sendImage = async (file) => {
+    if (!file || sending) return
+    setSending(true)
+    try {
+      const url = await compressAndUpload(file)
+      const { error } = await supabase.from('service_messages').insert({
+        chat_id: chat.id, sender_id: session?.user?.id, sender_role: 'admin', media_url: url,
+      })
+      if (error) console.error('[ServiceChat] Bild senden:', error)
+    } catch (err) {
+      console.error('[ServiceChat] Bild upload:', err)
+    }
+    setSending(false)
+  }
+
   const closeChat = async () => {
     setClosing(true)
     const { error } = await supabase
-      .from('service_chats')
-      .update({ is_active: false, closed_at: new Date().toISOString() })
-      .eq('id', chat.id)
+      .from('service_chats').update({ is_active: false, closed_at: new Date().toISOString() }).eq('id', chat.id)
     setClosing(false)
     if (error) console.error('[ServiceChat] Schließen:', error)
   }
 
   const reactivateChat = async () => {
     setReactivating(true)
-    // Erst ggf. anderen aktiven Chat für gleiche Rolle schließen (verhindert Unique-Index-Fehler)
     await supabase
       .from('service_chats')
       .update({ is_active: false, closed_at: new Date().toISOString() })
-      .eq('meldung_id', meldungId)
-      .eq('participant_role', chat.participant_role)
-      .eq('is_active', true)
-      .neq('id', chat.id)
-
+      .eq('meldung_id', meldungId).eq('participant_role', chat.participant_role)
+      .eq('is_active', true).neq('id', chat.id)
     const { error } = await supabase
-      .from('service_chats')
-      .update({ is_active: true, closed_at: null })
-      .eq('id', chat.id)
+      .from('service_chats').update({ is_active: true, closed_at: null }).eq('id', chat.id)
     setReactivating(false)
     if (error) console.error('[ServiceChat] Reaktivieren:', error)
   }
@@ -250,14 +277,19 @@ function ServiceChatPanel({ chat, meldungId, meldung, session }) {
         {messages.length === 0 && <p className="text-xs text-gray-500 text-center mt-8">Noch keine Nachrichten.</p>}
         {messages.map(m => {
           const isAdmin = m.sender_role === 'admin'
+          const bubbleStyle = isAdmin
+            ? { background: 'linear-gradient(90deg, rgba(226,40,128,0.25), rgba(38,140,251,0.25))', border: '1px solid rgba(226,40,128,0.3)' }
+            : { background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }
           return (
             <div key={m.id} className={`flex ${isAdmin ? 'justify-end' : 'justify-start'}`}>
               <div className="max-w-[75%]">
-                <div className="px-3 py-2 rounded-2xl text-sm text-white"
-                  style={isAdmin
-                    ? { background: 'linear-gradient(90deg, rgba(226,40,128,0.25), rgba(38,140,251,0.25))', border: '1px solid rgba(226,40,128,0.3)' }
-                    : { background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }
-                  }>{m.text}</div>
+                {m.media_url ? (
+                  <img src={m.media_url} alt="Bild" className="rounded-2xl cursor-pointer object-cover"
+                    style={{ maxHeight: 180, maxWidth: 220 }}
+                    onClick={() => setLightbox(m.media_url)} />
+                ) : (
+                  <div className="px-3 py-2 rounded-2xl text-sm text-white" style={bubbleStyle}>{m.text}</div>
+                )}
                 <p className="text-xs text-gray-600 mt-0.5 px-1">{fmt(m.created_at)}</p>
               </div>
             </div>
@@ -266,8 +298,21 @@ function ServiceChatPanel({ chat, meldungId, meldung, session }) {
         <div ref={bottomRef} />
       </div>
 
+      {lightbox && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90" onClick={() => setLightbox(null)}>
+          <img src={lightbox} alt="Bild" className="max-h-[90vh] max-w-[90vw] rounded-xl" />
+        </div>
+      )}
+
       {chat.is_active && (
         <div className="px-3 py-3 border-t flex gap-2 flex-shrink-0" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+          <input ref={fileRef} type="file" accept="image/*" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) { sendImage(f); e.target.value = '' } }} />
+          <button onClick={() => fileRef.current?.click()} disabled={sending}
+            className="px-3 py-2 rounded-xl text-sm disabled:opacity-40 transition-all flex-shrink-0"
+            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.6)' }}>
+            🖼
+          </button>
           <input
             value={input}
             onChange={e => setInput(e.target.value)}
