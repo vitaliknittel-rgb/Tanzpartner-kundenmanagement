@@ -15,20 +15,27 @@ const ABSCHLUSS_LABELS = {
   zur_anzeige_gebracht: 'Zur Anzeige gebracht',
 }
 
+const ACTION_LABELS = {
+  opened_chat:    'Chat-Verlauf geöffnet',
+  exported_chat:  'Export erstellt',
+  viewed_ip:      'IP-Adresse eingesehen',
+  suspended_user: 'Benutzer-Status geändert',
+}
+
 function addPdfWatermarkAndFooter(doc, meta) {
-  const { exportId, moderatorId, exportedAt } = meta
+  const { exportId, moderatorEmail, exportedAt } = meta
   const totalPages = doc.internal.getNumberOfPages()
   for (let p = 1; p <= totalPages; p++) {
     doc.setPage(p)
     const pw = doc.internal.pageSize.getWidth()
     const ph = doc.internal.pageSize.getHeight()
-    doc.setFontSize(50)
-    doc.setTextColor(225, 225, 225)
-    doc.text('VERTRAULICH', pw / 2, ph / 2, { angle: 45, align: 'center' })
+    doc.setFontSize(28)
+    doc.setTextColor(220, 220, 220)
+    doc.text(moderatorEmail ?? 'VERTRAULICH', pw / 2, ph / 2, { angle: 45, align: 'center' })
     doc.setFontSize(7)
     doc.setTextColor(140)
     doc.text(
-      `Export-ID: ${exportId}  |  Mod: ${(moderatorId ?? '-').slice(0, 8)}  |  ${new Date(exportedAt).toLocaleString('de-DE')}  |  Tanzpartner Moderation`,
+      `Export-ID: ${exportId}  |  ${moderatorEmail ?? '-'}  |  ${new Date(exportedAt).toLocaleString('de-DE')}  |  Tanzpartner Moderation`,
       14, ph - 8
     )
   }
@@ -287,12 +294,13 @@ function ServiceChatPanel({ chat, meldungId, meldung, session }) {
               if (error) console.error('[Export] Log fehlgeschlagen:', error)
               const exportId = exportRow?.id ?? 'N/A'
               supabase.from('moderation_audit_log').insert({
-                moderator_id: session?.user?.id,
-                report_id:    meldung.id,
-                chat_id:      chat.id,
-                action:       'exported_chat',
+                moderator_id:    session?.user?.id,
+                moderator_email: session?.user?.email,
+                report_id:       meldung.id,
+                chat_id:         chat.id,
+                action:          'exported_chat',
               }).then(({ error: e }) => { if (e) console.error('[Audit] exported_chat:', e) })
-              exportServiceChatPdf(meldung, messages, label, { exportId, moderatorId: session?.user?.id, exportedAt })
+              exportServiceChatPdf(meldung, messages, label, { exportId, moderatorEmail: session?.user?.email, exportedAt })
             }}
             disabled={messages.length === 0 || !meldung}
             className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all disabled:opacity-30"
@@ -396,20 +404,70 @@ export default function MeldungDetail() {
   const [adminNotizen,  setAdminNotizen]  = useState('')
   const [abschlussgrund, setAbschlussgrund] = useState('')
   const [showChat,      setShowChat]      = useState(false)
+  const [auditLogs,     setAuditLogs]     = useState([])
+  const [liveMessages,  setLiveMessages]  = useState([])
   const hasLoggedIp = useRef(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session), () => {})
   }, [])
 
+  // Audit-Log laden + Realtime
+  useEffect(() => {
+    supabase
+      .from('moderation_audit_log')
+      .select('id, action, created_at, reason, moderator_email')
+      .eq('report_id', id)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => setAuditLogs(data ?? []), (err) => console.error('[AuditLog] Laden:', err))
+
+    const channel = supabase
+      .channel(`audit_log_${id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'moderation_audit_log', filter: `report_id=eq.${id}` },
+        (payload) => setAuditLogs(prev => [payload.new, ...prev])
+      )
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [id])
+
+  // Live-Nachrichten zwischen den Parteien (solange Ticket nicht erledigt)
+  useEffect(() => {
+    const meldrId  = meldung?.melder?.id
+    const geldrtId = meldung?.gemeldeter?.id
+    if (!showChat || !meldrId || !geldrtId || meldung?.status === 'erledigt') return
+
+    supabase
+      .from('messages')
+      .select('id, sender_id, receiver_id, text, message_type, media_url, created_at')
+      .or(`and(sender_id.eq.${meldrId},receiver_id.eq.${geldrtId}),and(sender_id.eq.${geldrtId},receiver_id.eq.${meldrId})`)
+      .gt('created_at', meldung.created_at)
+      .order('created_at', { ascending: true })
+      .then(({ data }) => setLiveMessages(data ?? []), (err) => console.error('[LiveMsgs] Laden:', err))
+
+    const channel = supabase
+      .channel(`live_msgs_${id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          const m = payload.new
+          if (
+            (m.sender_id === meldrId && m.receiver_id === geldrtId) ||
+            (m.sender_id === geldrtId && m.receiver_id === meldrId)
+          ) setLiveMessages(prev => [...prev, m])
+        }
+      )
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [showChat, meldung?.melder?.id, meldung?.gemeldeter?.id, meldung?.status, meldung?.created_at, id])
+
   // Audit: viewed_ip – einmalig wenn Seite geladen und IP vorhanden
   useEffect(() => {
     if (!session?.user?.id || !meldung?.gemeldeter_ip || hasLoggedIp.current) return
     hasLoggedIp.current = true
     supabase.from('moderation_audit_log').insert({
-      moderator_id: session.user.id,
-      report_id:    id,
-      action:       'viewed_ip',
+      moderator_id:    session.user.id,
+      moderator_email: session.user.email,
+      report_id:       id,
+      action:          'viewed_ip',
     }).then(({ error }) => { if (error) console.error('[Audit] viewed_ip:', error) })
   }, [session, meldung?.gemeldeter_ip, id])
 
@@ -532,10 +590,11 @@ export default function MeldungDetail() {
     if (suspErr) { setError('Sperr-Aktion fehlgeschlagen: ' + suspErr.message); return }
     setIsSuspended(s => !s)
     supabase.from('moderation_audit_log').insert({
-      moderator_id: session?.user?.id,
-      report_id:    id,
-      action:       'suspended_user',
-      reason:       isSuspended ? 'Sperre aufgehoben' : 'Benutzer gesperrt',
+      moderator_id:    session?.user?.id,
+      moderator_email: session?.user?.email,
+      report_id:       id,
+      action:          'suspended_user',
+      reason:          isSuspended ? 'Sperre aufgehoben' : 'Benutzer gesperrt',
     }).then(({ error }) => { if (error) console.error('[Audit] suspended_user:', error) })
   }
 
@@ -550,11 +609,12 @@ export default function MeldungDetail() {
     if (error) console.error('[Export] Log fehlgeschlagen:', error)
     const exportId = exportRow?.id ?? 'N/A'
     supabase.from('moderation_audit_log').insert({
-      moderator_id: session?.user?.id,
-      report_id:    id,
-      action:       'exported_chat',
+      moderator_id:    session?.user?.id,
+      moderator_email: session?.user?.email,
+      report_id:       id,
+      action:          'exported_chat',
     }).then(({ error: e }) => { if (e) console.error('[Audit] exported_chat:', e) })
-    exportChatPdf(meldung, nachrichten, { exportId, moderatorId: session?.user?.id, exportedAt })
+    exportChatPdf(meldung, nachrichten, { exportId, moderatorEmail: session?.user?.email, exportedAt })
   }, [nachrichten, meldung, session, id])
 
   const openServiceChat = async (role) => {
@@ -582,11 +642,12 @@ export default function MeldungDetail() {
       return [...prev, newChat]
     })
     supabase.from('moderation_audit_log').insert({
-      moderator_id: session?.user?.id,
-      report_id:    id,
-      chat_id:      newChat.id,
-      action:       'opened_chat',
-      reason:       role,
+      moderator_id:    session?.user?.id,
+      moderator_email: session?.user?.email,
+      report_id:       id,
+      chat_id:         newChat.id,
+      action:          'opened_chat',
+      reason:          role,
     }).then(({ error: e }) => { if (e) console.error('[Audit] opened_chat:', e) })
   }
 
@@ -683,16 +744,38 @@ export default function MeldungDetail() {
           <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{meldung.beschreibung}</p>
         </div>
 
-        {/* Chat-Verlauf – Button */}
-        <button onClick={() => setShowChat(true)}
-          className="p-5 rounded-2xl text-left w-full flex items-center justify-between transition-all hover:brightness-110"
-          style={card}>
-          <div>
-            <p className="text-sm font-semibold text-white">Chat-Verlauf anzeigen</p>
-            <p className="text-xs text-gray-500 mt-0.5">{nachrichten.length} Nachrichten gespeichert</p>
-          </div>
-          <span className="text-gray-400 text-lg">›</span>
-        </button>
+        {/* Chat-Verlauf – Button + Audit-Log */}
+        <div className="rounded-2xl overflow-hidden" style={card}>
+          <button onClick={() => setShowChat(true)}
+            className="p-5 text-left w-full flex items-center justify-between transition-all hover:brightness-110">
+            <div>
+              <p className="text-sm font-semibold text-white">Chat-Verlauf anzeigen</p>
+              <p className="text-xs text-gray-500 mt-0.5">{nachrichten.length} Nachrichten gespeichert</p>
+            </div>
+            <span className="text-gray-400 text-lg">›</span>
+          </button>
+
+          {auditLogs.length > 0 && (
+            <div className="px-5 pb-4 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+              <p className="text-xs font-semibold text-gray-500 mt-3 mb-2">Zugriffsprotokoll</p>
+              <div className="flex flex-col gap-1.5">
+                {auditLogs.map(log => (
+                  <div key={log.id} className="flex items-start gap-2 text-xs">
+                    <span className="text-gray-600 flex-shrink-0 tabular-nums">{fmt(log.created_at)}</span>
+                    <span className="font-medium" style={{ color: 'rgba(255,255,255,0.55)' }}>
+                      {log.moderator_email ?? '—'}
+                    </span>
+                    <span className="text-gray-500">·</span>
+                    <span style={{ color: 'rgba(255,255,255,0.35)' }}>
+                      {ACTION_LABELS[log.action] ?? log.action}
+                      {log.reason ? ` (${log.reason})` : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Chat-Verlauf – Modal */}
         {showChat && (
@@ -732,6 +815,31 @@ export default function MeldungDetail() {
                   ? <p className="text-sm text-gray-500">Kein Chat-Verlauf gespeichert.</p>
                   : nachrichten.map(m => <ChatMessage key={m.id} msg={m} />)
                 }
+
+                {liveMessages.length > 0 && (
+                  <>
+                    <div className="flex items-center gap-2 my-4">
+                      <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.07)' }} />
+                      <span className="text-xs flex-shrink-0" style={{ color: 'rgba(251,191,36,0.7)' }}>
+                        Neue Nachrichten nach Meldung
+                      </span>
+                      <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.07)' }} />
+                    </div>
+                    {liveMessages.map(m => (
+                      <ChatMessage key={m.id} msg={{
+                        ...m,
+                        sender_is_melder: m.sender_id === meldung.melder?.id,
+                        sent_at: m.created_at,
+                      }} />
+                    ))}
+                  </>
+                )}
+
+                {meldung.status !== 'erledigt' && meldung?.melder?.id && meldung?.gemeldeter?.id && (
+                  <p className="text-xs text-center mt-4" style={{ color: 'rgba(34,197,94,0.5)' }}>
+                    ● Live – aktualisiert sich automatisch
+                  </p>
+                )}
               </div>
             </div>
           </div>
