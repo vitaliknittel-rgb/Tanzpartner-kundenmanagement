@@ -44,7 +44,11 @@ export default function Meldungen() {
     load().then(undefined, (err) => setError(err.message))
   }, [load])
 
-  const TYP_ORDER = { sexuelle_belaestigung: 0, gewaltandrohung: 1, fehler: 2 }
+  const TYP_ORDER = {
+    gewaltandrohung: 0, sexuelle_belaestigung: 1, stalking: 2,
+    minderjaehrigenschutz: 3, hassrede: 4, betrug: 5,
+    spam: 6, fake_profil: 7, sonstiges: 8, fehler: 9,
+  }
   const STATUS_ORDER = { neu: 0, in_bearbeitung: 1, erledigt: 2 }
 
   const handleSort = (col) => {
@@ -107,9 +111,16 @@ export default function Meldungen() {
           className="px-4 py-2 rounded-xl text-sm text-white bg-navy-light border border-white/10 outline-none focus:border-white/30 transition-colors"
         >
           <option value="alle">Alle Typen</option>
-          <option value="fehler">Technischer Fehler</option>
           <option value="gewaltandrohung">Gewaltandrohung</option>
           <option value="sexuelle_belaestigung">Sexuelle Belästigung</option>
+          <option value="stalking">Stalking</option>
+          <option value="betrug">Betrug</option>
+          <option value="hassrede">Hassrede</option>
+          <option value="spam">Spam</option>
+          <option value="fake_profil">Fake-Profil</option>
+          <option value="minderjaehrigenschutz">Minderjährigenschutz</option>
+          <option value="sonstiges">Sonstiges</option>
+          <option value="fehler">Technischer Fehler</option>
         </select>
       </div>
 

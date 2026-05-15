@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate }       from 'react-router-dom'
 import { supabase }                     from '../lib/supabase'
 import StatusBadge                      from '../components/StatusBadge'
@@ -15,19 +15,40 @@ const ABSCHLUSS_LABELS = {
   zur_anzeige_gebracht: 'Zur Anzeige gebracht',
 }
 
-function exportChatPdf(meldung, nachrichten) {
+function addPdfWatermarkAndFooter(doc, meta) {
+  const { exportId, moderatorId, exportedAt } = meta
+  const totalPages = doc.internal.getNumberOfPages()
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p)
+    const pw = doc.internal.pageSize.getWidth()
+    const ph = doc.internal.pageSize.getHeight()
+    doc.setFontSize(50)
+    doc.setTextColor(225, 225, 225)
+    doc.text('VERTRAULICH', pw / 2, ph / 2, { angle: 45, align: 'center' })
+    doc.setFontSize(7)
+    doc.setTextColor(140)
+    doc.text(
+      `Export-ID: ${exportId}  |  Mod: ${(moderatorId ?? '-').slice(0, 8)}  |  ${new Date(exportedAt).toLocaleString('de-DE')}  |  Tanzpartner Moderation`,
+      14, ph - 8
+    )
+  }
+}
+
+function exportChatPdf(meldung, nachrichten, meta = {}) {
+  const { exportId = 'N/A', moderatorId = '-', exportedAt = new Date().toISOString() } = meta
   const doc = new jsPDF()
   doc.setFontSize(14)
   doc.setTextColor(40)
-  doc.text('Chat-Verlauf – Meldung', 14, 18)
+  doc.text('Chat-Verlauf - Meldung', 14, 18)
   doc.setFontSize(9)
   doc.setTextColor(120)
   doc.text(`ID: ${meldung.id}`, 14, 26)
   doc.text(`Typ: ${meldung.typ}  |  Datum: ${fmt(meldung.created_at)}`, 14, 31)
   doc.text(`Melder: ${meldung.melder?.name ?? '-'}  |  Gemeldeter: ${meldung.gemeldeter?.name ?? meldung.gemeldeter_user_name ?? '-'}`, 14, 36)
+  doc.text(`Export-ID: ${exportId}  |  Erstellt: ${new Date(exportedAt).toLocaleString('de-DE')}`, 14, 41)
 
   autoTable(doc, {
-    startY: 42,
+    startY: 47,
     head: [['Zeit', 'Von', 'Inhalt']],
     body: nachrichten.map(m => [
       fmt(m.sent_at),
@@ -41,10 +62,12 @@ function exportChatPdf(meldung, nachrichten) {
     columnStyles: { 0: { cellWidth: 35 }, 1: { cellWidth: 25 } },
   })
 
+  addPdfWatermarkAndFooter(doc, { exportId, moderatorId, exportedAt })
   doc.save(`meldung-${meldung.id.slice(0, 8)}-chat.pdf`)
 }
 
-function exportServiceChatPdf(meldung, messages, label) {
+function exportServiceChatPdf(meldung, messages, label, meta = {}) {
+  const { exportId = 'N/A', moderatorId = '-', exportedAt = new Date().toISOString() } = meta
   const doc = new jsPDF()
   doc.setFontSize(14)
   doc.setTextColor(40)
@@ -54,20 +77,22 @@ function exportServiceChatPdf(meldung, messages, label) {
   doc.text(`Meldung-ID: ${meldung.id}`, 14, 26)
   doc.text(`Typ: ${meldung.typ}  |  Datum: ${fmt(meldung.created_at)}`, 14, 31)
   doc.text(`Melder: ${meldung.melder?.name ?? '-'}  |  Gemeldeter: ${meldung.gemeldeter?.name ?? meldung.gemeldeter_user_name ?? '-'}`, 14, 36)
+  doc.text(`Export-ID: ${exportId}  |  Erstellt: ${new Date(exportedAt).toLocaleString('de-DE')}`, 14, 41)
 
   autoTable(doc, {
-    startY: 42,
+    startY: 47,
     head: [['Zeit', 'Von', 'Inhalt']],
     body: messages.map(m => [
       fmt(m.created_at),
       m.sender_role === 'admin' ? 'Service' : label,
-      m.text ?? '',
+      m.media_url ? '[Bild]' : (m.text ?? ''),
     ]),
     styles: { fontSize: 8, cellPadding: 3 },
     headStyles: { fillColor: [22, 27, 34], textColor: 255, fontStyle: 'bold' },
     columnStyles: { 0: { cellWidth: 35 }, 1: { cellWidth: 25 } },
   })
 
+  addPdfWatermarkAndFooter(doc, { exportId, moderatorId, exportedAt })
   doc.save(`service-chat-${meldung.id.slice(0, 8)}-${label.toLowerCase()}.pdf`)
 }
 
@@ -250,7 +275,25 @@ function ServiceChatPanel({ chat, meldungId, meldung, session }) {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => meldung && exportServiceChatPdf(meldung, messages, label)}
+            onClick={async () => {
+              if (!meldung || messages.length === 0) return
+              const exportedAt = new Date().toISOString()
+              const { data: exportRow, error } = await supabase.from('export_log').insert({
+                export_type: 'service_chat_pdf',
+                exported_by: session?.user?.id,
+                report_id:   meldung.id,
+                chat_id:     chat.id,
+              }).select('id').single()
+              if (error) console.error('[Export] Log fehlgeschlagen:', error)
+              const exportId = exportRow?.id ?? 'N/A'
+              supabase.from('moderation_audit_log').insert({
+                moderator_id: session?.user?.id,
+                report_id:    meldung.id,
+                chat_id:      chat.id,
+                action:       'exported_chat',
+              }).then(({ error: e }) => { if (e) console.error('[Audit] exported_chat:', e) })
+              exportServiceChatPdf(meldung, messages, label, { exportId, moderatorId: session?.user?.id, exportedAt })
+            }}
             disabled={messages.length === 0 || !meldung}
             className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all disabled:opacity-30"
             style={{ background: 'rgba(38,140,251,0.12)', border: '1px solid rgba(38,140,251,0.25)', color: '#7dd3fc' }}>
@@ -353,10 +396,22 @@ export default function MeldungDetail() {
   const [adminNotizen,  setAdminNotizen]  = useState('')
   const [abschlussgrund, setAbschlussgrund] = useState('')
   const [showChat,      setShowChat]      = useState(false)
+  const hasLoggedIp = useRef(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session), () => {})
   }, [])
+
+  // Audit: viewed_ip – einmalig wenn Seite geladen und IP vorhanden
+  useEffect(() => {
+    if (!session?.user?.id || !meldung?.gemeldeter_ip || hasLoggedIp.current) return
+    hasLoggedIp.current = true
+    supabase.from('moderation_audit_log').insert({
+      moderator_id: session.user.id,
+      report_id:    id,
+      action:       'viewed_ip',
+    }).then(({ error }) => { if (error) console.error('[Audit] viewed_ip:', error) })
+  }, [session, meldung?.gemeldeter_ip, id])
 
   useEffect(() => {
     let cancelled = false
@@ -476,7 +531,31 @@ export default function MeldungDetail() {
     setSuspending(false)
     if (suspErr) { setError('Sperr-Aktion fehlgeschlagen: ' + suspErr.message); return }
     setIsSuspended(s => !s)
+    supabase.from('moderation_audit_log').insert({
+      moderator_id: session?.user?.id,
+      report_id:    id,
+      action:       'suspended_user',
+      reason:       isSuspended ? 'Sperre aufgehoben' : 'Benutzer gesperrt',
+    }).then(({ error }) => { if (error) console.error('[Audit] suspended_user:', error) })
   }
+
+  const handleExportChatPdf = useCallback(async () => {
+    if (nachrichten.length === 0 || !meldung) return
+    const exportedAt = new Date().toISOString()
+    const { data: exportRow, error } = await supabase.from('export_log').insert({
+      export_type: 'chat_pdf',
+      exported_by: session?.user?.id,
+      report_id:   id,
+    }).select('id').single()
+    if (error) console.error('[Export] Log fehlgeschlagen:', error)
+    const exportId = exportRow?.id ?? 'N/A'
+    supabase.from('moderation_audit_log').insert({
+      moderator_id: session?.user?.id,
+      report_id:    id,
+      action:       'exported_chat',
+    }).then(({ error: e }) => { if (e) console.error('[Audit] exported_chat:', e) })
+    exportChatPdf(meldung, nachrichten, { exportId, moderatorId: session?.user?.id, exportedAt })
+  }, [nachrichten, meldung, session, id])
 
   const openServiceChat = async (role) => {
     const userId = role === 'melder' ? meldung?.melder?.id : meldung?.gemeldeter?.id
@@ -498,11 +577,17 @@ export default function MeldungDetail() {
       console.error('[ServiceChat] Öffnen:', error)
       return
     }
-    // Sofort in den State schreiben – kein Warten auf Realtime
     setServiceChats(prev => {
       if (prev.some(c => c.id === newChat.id)) return prev
       return [...prev, newChat]
     })
+    supabase.from('moderation_audit_log').insert({
+      moderator_id: session?.user?.id,
+      report_id:    id,
+      chat_id:      newChat.id,
+      action:       'opened_chat',
+      reason:       role,
+    }).then(({ error: e }) => { if (e) console.error('[Audit] opened_chat:', e) })
   }
 
   if (loading) return <div className="p-8 text-gray-400 text-sm">Lade Meldung…</div>
@@ -631,7 +716,7 @@ export default function MeldungDetail() {
                 </div>
                 <div className="flex items-center gap-2">
                   {nachrichten.length > 0 && (
-                    <button onClick={() => exportChatPdf(meldung, nachrichten)}
+                    <button onClick={handleExportChatPdf}
                       className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all"
                       style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}>
                       PDF ↓
