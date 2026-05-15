@@ -47,7 +47,7 @@ export default function Meldungen() {
   const TYP_ORDER = {
     gewaltandrohung: 0, sexuelle_belaestigung: 1, stalking: 2,
     minderjaehrigenschutz: 3, hassrede: 4, betrug: 5,
-    spam: 6, fake_profil: 7, sonstiges: 8, fehler: 9,
+    spam: 6, fake_profil: 7, feed_meldung: 8, sonstiges: 9, fehler: 10,
   }
   const STATUS_ORDER = { neu: 0, in_bearbeitung: 1, erledigt: 2 }
 
@@ -119,6 +119,7 @@ export default function Meldungen() {
           <option value="spam">Spam</option>
           <option value="fake_profil">Fake-Profil</option>
           <option value="minderjaehrigenschutz">Minderjährigenschutz</option>
+          <option value="feed_meldung">Feed-Meldung</option>
           <option value="sonstiges">Sonstiges</option>
           <option value="fehler">Technischer Fehler</option>
         </select>

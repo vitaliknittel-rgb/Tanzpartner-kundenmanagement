@@ -9,6 +9,7 @@ const CONFIG = {
   fake_profil:           { label: 'Fake-Profil',            bg: 'rgba(59,130,246,0.15)', border: 'rgba(59,130,246,0.3)', text: '#93c5fd' },
   minderjaehrigenschutz: { label: 'Minderjährigenschutz',  bg: 'rgba(34,197,94,0.15)',  border: 'rgba(34,197,94,0.3)',  text: '#86efac' },
   sonstiges:             { label: 'Sonstiges',              bg: 'rgba(255,255,255,0.08)', border: 'rgba(255,255,255,0.15)', text: '#d1d5db' },
+  feed_meldung:          { label: 'Feed-Meldung',           bg: 'rgba(99,102,241,0.15)',  border: 'rgba(99,102,241,0.3)',  text: '#a5b4fc' },
 }
 
 export default function TypBadge({ typ }) {
