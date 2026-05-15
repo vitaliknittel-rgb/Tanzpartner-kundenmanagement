@@ -835,8 +835,10 @@ export default function MeldungDetail() {
 
             {!feedPostLoaded && meldung.source_post_id ? (
               <p className="text-sm text-gray-600 italic">Beitrag wird geladen…</p>
-            ) : !displayFeedPost ? (
+            ) : !displayFeedPost && !meldung.source_post_id ? (
               <p className="text-sm text-gray-600 italic">Kein Beitrag verknüpft.</p>
+            ) : !displayFeedPost && meldung.source_post_id ? (
+              <p className="text-sm text-gray-500 italic">Beitrag wurde gelöscht – keine Sicherungskopie vorhanden (Meldung vor Datensicherung eingereicht).</p>
             ) : (
               <div className="flex flex-col gap-3">
                 {/* Kopfzeile */}
