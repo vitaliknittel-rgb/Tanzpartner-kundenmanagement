@@ -16,6 +16,12 @@ const MELDUNG_TYPEN = [
 ]
 
 const FEED_GRUENDE = [
+  'Betrug / Scam', 'Sexueller Inhalt', 'Belästigung',
+  'Hassrede', 'Spam', 'Falsches Profil',
+  'Urheberrechtsverletzung', 'Gewalt', 'Sonstiges',
+]
+
+const FEED_GRUENDE = [
   'Betrug / Scam',
   'Sexueller Inhalt',
   'Belästigung',
@@ -48,11 +54,10 @@ export default function Layout({ children }) {
   const navigate  = useNavigate()
   const location  = useLocation()
 
-  const isMeldungenActive = location.pathname.startsWith('/meldungen')
+  const isMeldungenActive = location.pathname === '/meldungen' && !location.search.includes('typ=feed_meldung')
+  const isFeedActive      = location.pathname === '/meldungen' && location.search.includes('typ=feed_meldung')
   const [meldungenOpen, setMeldungenOpen] = useState(isMeldungenActive)
-  const [feedOpen,      setFeedOpen]      = useState(
-    isMeldungenActive && location.search.includes('typ=feed_meldung')
-  )
+  const [feedOpen,      setFeedOpen]      = useState(isFeedActive)
 
   const [neuCount,     setNeuCount]     = useState(0)
   const [feedNeuCount, setFeedNeuCount] = useState(0)
@@ -89,9 +94,6 @@ export default function Layout({ children }) {
     navigate('/login', { replace: true })
   }
 
-  const isActive = (path, search = '') =>
-    location.pathname === path && location.search === search
-
   return (
     <div className="min-h-screen bg-navy flex">
       {/* Sidebar */}
@@ -126,7 +128,7 @@ export default function Layout({ children }) {
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
                 isMeldungenActive ? 'text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
               }`}
-              style={isMeldungenActive && !location.search ? navItemStyle(true) : {}}
+              style={isMeldungenActive ? navItemStyle(true) : {}}
             >
               <span>Meldungen</span>
               <div className="flex items-center gap-1.5">
@@ -140,8 +142,6 @@ export default function Layout({ children }) {
 
             {meldungenOpen && (
               <div className="mt-1 ml-3 flex flex-col gap-0.5">
-
-                {/* Alle Meldungen */}
                 <NavLink
                   to="/meldungen"
                   end
@@ -152,59 +152,8 @@ export default function Layout({ children }) {
                   }
                 >
                   Alle
-                  <Badge count={neuCount} />
+                  <Badge count={neuCount - feedNeuCount} />
                 </NavLink>
-
-                {/* Feed – eigener aufklappbarer Block */}
-                <div>
-                  <button
-                    onClick={() => setFeedOpen(o => !o)}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                      location.search.includes('typ=feed_meldung') ? 'text-white bg-white/8' : 'text-gray-500 hover:text-white hover:bg-white/5'
-                    }`}
-                  >
-                    <span>Feed</span>
-                    <div className="flex items-center gap-1.5">
-                      <Badge count={feedNeuCount} />
-                      <span className="text-[10px] text-gray-600 transition-transform duration-200"
-                        style={{ display: 'inline-block', transform: feedOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>
-                        ›
-                      </span>
-                    </div>
-                  </button>
-
-                  {feedOpen && (
-                    <div className="mt-0.5 ml-3 flex flex-col gap-0.5">
-                      {/* Alle Feed-Meldungen */}
-                      <NavLink
-                        to="/meldungen?typ=feed_meldung"
-                        className={`flex items-center px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
-                          isActive('/meldungen', '?typ=feed_meldung') ? 'text-white bg-white/8' : 'text-gray-500 hover:text-white hover:bg-white/5'
-                        }`}
-                      >
-                        Alle Feed
-                        <Badge count={feedNeuCount} />
-                      </NavLink>
-
-                      {/* Feed-Unterkategorien nach Melde-Grund */}
-                      {FEED_GRUENDE.map(grund => (
-                        <NavLink
-                          key={grund}
-                          to={`/meldungen?typ=feed_meldung&grund=${encodeURIComponent(grund)}`}
-                          className={`flex items-center px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
-                            isActive('/meldungen', `?typ=feed_meldung&grund=${encodeURIComponent(grund)}`)
-                              ? 'text-white bg-white/8'
-                              : 'text-gray-500 hover:text-white hover:bg-white/5'
-                          }`}
-                        >
-                          {grund}
-                        </NavLink>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Übrige Meldungstypen */}
                 {MELDUNG_TYPEN.map(({ typ, label }) => (
                   <NavLink
                     key={typ}
@@ -216,6 +165,53 @@ export default function Layout({ children }) {
                     }
                   >
                     {label}
+                  </NavLink>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Feed – eigene Zeile, aufklappbar */}
+          <div>
+            <button
+              onClick={() => setFeedOpen(o => !o)}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                isFeedActive ? 'text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+              style={isFeedActive ? navItemStyle(true) : {}}
+            >
+              <span>Feed</span>
+              <div className="flex items-center gap-1.5">
+                <Badge count={feedNeuCount} />
+                <span className="text-xs text-gray-500 transition-transform duration-200"
+                  style={{ display: 'inline-block', transform: feedOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>
+                  ›
+                </span>
+              </div>
+            </button>
+
+            {feedOpen && (
+              <div className="mt-1 ml-3 flex flex-col gap-0.5">
+                <NavLink
+                  to="/meldungen?typ=feed_meldung"
+                  className={`flex items-center px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                    location.pathname === '/meldungen' && location.search === '?typ=feed_meldung'
+                      ? 'text-white bg-white/8' : 'text-gray-500 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  Alle
+                  <Badge count={feedNeuCount} />
+                </NavLink>
+                {FEED_GRUENDE.map(grund => (
+                  <NavLink
+                    key={grund}
+                    to={`/meldungen?typ=feed_meldung&grund=${encodeURIComponent(grund)}`}
+                    className={`flex items-center px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                      location.pathname === '/meldungen' && location.search === `?typ=feed_meldung&grund=${encodeURIComponent(grund)}`
+                        ? 'text-white bg-white/8' : 'text-gray-500 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    {grund}
                   </NavLink>
                 ))}
               </div>
