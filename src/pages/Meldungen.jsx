@@ -10,8 +10,9 @@ export default function Meldungen() {
   const navigate                    = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const filterTyp    = searchParams.get('typ')   ?? 'alle'
-  const filterGrund  = searchParams.get('grund') ?? ''
+  const filterTyp         = searchParams.get('typ')         ?? 'alle'
+  const filterGrund       = searchParams.get('grund')       ?? ''
+  const filterDeaktiviert = searchParams.get('deaktiviert') === '1'
 
   const [meldungen, setMeldungen] = useState([])
   const [loading,   setLoading]   = useState(true)
@@ -21,25 +22,33 @@ export default function Meldungen() {
   const [sortCol, setSortCol] = useState('created_at')
   const [sortDir, setSortDir] = useState('desc')
 
+  // Feed-Ansicht: wenn Typ=feed_meldung oder Deaktiviert-Filter aktiv
+  const isFeedView = filterTyp === 'feed_meldung' || filterDeaktiviert
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
 
     let query = supabase
       .from('meldungen')
-      .select('id, typ, status, beschreibung, feed_reason, created_at, gemeldeter_user_name, melder:user_id(name)')
+      .select('id, typ, status, beschreibung, feed_reason, is_auto_deactivated, created_at, gemeldeter_user_name, melder:user_id(name)')
       .order('created_at', { ascending: false })
 
     if (filterStatus !== 'alle') query = query.eq('status',      filterStatus)
-    if (filterTyp    !== 'alle') query = query.eq('typ',         filterTyp)
     if (filterGrund)             query = query.eq('feed_reason', filterGrund)
+
+    if (filterDeaktiviert) {
+      query = query.eq('is_auto_deactivated', true).eq('typ', 'feed_meldung')
+    } else if (filterTyp !== 'alle') {
+      query = query.eq('typ', filterTyp)
+    }
 
     const { data, error: qErr } = await query
     if (qErr) { setError(qErr.message); setLoading(false); return }
 
     setMeldungen(data ?? [])
     setLoading(false)
-  }, [filterStatus, filterTyp, filterGrund])
+  }, [filterStatus, filterTyp, filterGrund, filterDeaktiviert])
 
   useEffect(() => {
     load().then(undefined, (err) => setError(err.message))
@@ -104,7 +113,7 @@ export default function Meldungen() {
         </select>
 
         <select
-          value={filterTyp}
+          value={filterDeaktiviert ? 'feed_meldung' : filterTyp}
           onChange={e => {
             const val = e.target.value
             if (val === 'alle') { setSearchParams({}); } else { setSearchParams({ typ: val }) }
@@ -124,6 +133,24 @@ export default function Meldungen() {
           <option value="sonstiges">Sonstiges</option>
           <option value="fehler">Technischer Fehler</option>
         </select>
+
+        {/* Deaktiviert-Toggle (nur Feed-Posts die auto-deaktiviert wurden) */}
+        <button
+          onClick={() => {
+            if (filterDeaktiviert) {
+              setSearchParams({})
+            } else {
+              setSearchParams({ typ: 'feed_meldung', deaktiviert: '1' })
+            }
+          }}
+          className="px-4 py-2 rounded-xl text-sm font-semibold transition-all"
+          style={filterDeaktiviert
+            ? { background: 'rgba(249,115,22,0.2)', border: '1px solid rgba(249,115,22,0.5)', color: '#fdba74' }
+            : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#9ca3af' }
+          }
+        >
+          🔴 Deaktiviert
+        </button>
       </div>
 
       {/* Tabelle */}
@@ -143,10 +170,15 @@ export default function Meldungen() {
               <tr className="text-left border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
                 <th className="px-5 py-3 text-xs font-semibold text-gray-500 whitespace-nowrap cursor-pointer select-none hover:text-white transition-colors" onClick={() => handleSort('created_at')}>Datum{sortArrow('created_at')}</th>
                 <th className="px-5 py-3 text-xs font-semibold text-gray-500 cursor-pointer select-none hover:text-white transition-colors" onClick={() => handleSort('typ')}>Typ{sortArrow('typ')}</th>
+                {isFeedView
+                  ? <th className="px-5 py-3 text-xs font-semibold text-gray-500">Meldungsgrund</th>
+                  : <th className="px-5 py-3 text-xs font-semibold text-gray-500 hidden lg:table-cell">Beschreibung</th>
+                }
                 <th className="px-5 py-3 text-xs font-semibold text-gray-500 cursor-pointer select-none hover:text-white transition-colors" onClick={() => handleSort('status')}>Status{sortArrow('status')}</th>
-                <th className="px-5 py-3 text-xs font-semibold text-gray-500 hidden lg:table-cell">Beschreibung</th>
                 <th className="px-5 py-3 text-xs font-semibold text-gray-500 hidden md:table-cell">Melder</th>
-                <th className="px-5 py-3 text-xs font-semibold text-gray-500 hidden xl:table-cell">Gemeldeter User</th>
+                {!isFeedView && (
+                  <th className="px-5 py-3 text-xs font-semibold text-gray-500 hidden xl:table-cell">Gemeldeter User</th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -159,16 +191,41 @@ export default function Meldungen() {
                 >
                   <td className="px-5 py-3.5 text-sm text-gray-300 whitespace-nowrap">{fmt(m.created_at)}</td>
                   <td className="px-5 py-3.5"><TypBadge typ={m.typ} /></td>
-                  <td className="px-5 py-3.5"><StatusBadge status={m.status} /></td>
-                  <td className="px-5 py-3.5 text-sm text-gray-400 hidden lg:table-cell max-w-xs">
-                    <span className="line-clamp-2">{m.beschreibung.slice(0, 100)}{m.beschreibung.length > 100 ? '…' : ''}</span>
+                  {isFeedView
+                    ? (
+                      <td className="px-5 py-3.5 text-sm text-gray-300 max-w-xs">
+                        {m.feed_reason
+                          ? <span>{m.feed_reason}</span>
+                          : <span className="text-gray-600">—</span>
+                        }
+                      </td>
+                    ) : (
+                      <td className="px-5 py-3.5 text-sm text-gray-400 hidden lg:table-cell max-w-xs">
+                        <span className="line-clamp-2">{m.beschreibung.slice(0, 100)}{m.beschreibung.length > 100 ? '…' : ''}</span>
+                      </td>
+                    )
+                  }
+                  <td className="px-5 py-3.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <StatusBadge status={m.status} />
+                      {m.is_auto_deactivated && (
+                        <span
+                          className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap"
+                          style={{ background: 'rgba(249,115,22,0.15)', border: '1px solid rgba(249,115,22,0.3)', color: '#fdba74' }}
+                        >
+                          Auto-deaktiviert
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-5 py-3.5 text-sm text-gray-400 hidden md:table-cell whitespace-nowrap">
                     {m.melder?.name ?? <span className="text-gray-600">—</span>}
                   </td>
-                  <td className="px-5 py-3.5 text-sm text-gray-400 hidden xl:table-cell whitespace-nowrap">
-                    {m.gemeldeter_user_name ?? <span className="text-gray-600">—</span>}
-                  </td>
+                  {!isFeedView && (
+                    <td className="px-5 py-3.5 text-sm text-gray-400 hidden xl:table-cell whitespace-nowrap">
+                      {m.gemeldeter_user_name ?? <span className="text-gray-600">—</span>}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
