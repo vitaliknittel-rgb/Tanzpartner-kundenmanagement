@@ -16,10 +16,11 @@ const ABSCHLUSS_LABELS = {
 }
 
 const ACTION_LABELS = {
-  opened_chat:    'Chat-Verlauf geöffnet',
-  exported_chat:  'Export erstellt',
-  viewed_ip:      'IP-Adresse eingesehen',
-  suspended_user: 'Benutzer-Status geändert',
+  opened_chat:        'Chat-Verlauf geöffnet',
+  exported_chat:      'Export erstellt',
+  exported_feed_post: 'Feed-Beitrag gesichert (PDF)',
+  viewed_ip:          'IP-Adresse eingesehen',
+  suspended_user:     'Benutzer-Status geändert',
 }
 
 const AUDIT_PREVIEW = 3
@@ -139,6 +140,98 @@ function exportServiceChatPdf(meldung, messages, label, meta = {}) {
 
   addPdfWatermarkAndFooter(doc, { exportId, moderatorId, exportedAt })
   doc.save(`service-chat-${meldung.id.slice(0, 8)}-${label.toLowerCase()}.pdf`)
+}
+
+async function fetchImageAsBase64(url) {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const blob = await res.blob()
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload  = () => resolve(reader.result)
+      reader.onerror = reject
+      reader.readAsDataURL(blob)
+    })
+  } catch {
+    return null
+  }
+}
+
+async function exportFeedPostPdf(meldung, post, meta = {}) {
+  const { exportId = 'N/A', moderatorEmail = '-', exportedAt = new Date().toISOString() } = meta
+  const doc = new jsPDF()
+
+  doc.setFontSize(14)
+  doc.setTextColor(40)
+  doc.text('Gemeldeter Feed-Beitrag – Sicherungskopie', 14, 18)
+
+  doc.setFontSize(8)
+  doc.setTextColor(120)
+  doc.text(`Meldung-ID: ${meldung.id}`, 14, 26)
+  doc.text(`Meldedatum: ${fmt(meldung.created_at)}`, 14, 31)
+  doc.text(`Melder: ${meldung.melder?.name ?? meldung.melder_user_name ?? '—'}`, 14, 36)
+  doc.text(`Gemeldeter Account: ${meldung.gemeldeter?.name ?? meldung.gemeldeter_user_name ?? '—'}`, 14, 41)
+  doc.text(`Meldegrund: ${meldung.beschreibung ?? '—'}`, 14, 46)
+  doc.text(`Export-ID: ${exportId}  |  Exportiert von: ${moderatorEmail}  |  ${new Date(exportedAt).toLocaleString('de-DE')}`, 14, 51)
+
+  autoTable(doc, {
+    startY: 57,
+    head: [['Beitrags-Metadaten', '']],
+    body: [
+      ['Beitragstyp',  post.type ?? '—'],
+      ['Autor',        post.authorName ?? '—'],
+      ['Veröffentlicht', fmt(post.created_at)],
+      ['Datenstatus',  post.isSnapshot ? 'Snapshot – Original wurde gelöscht' : 'Live-Beitrag zum Exportzeitpunkt'],
+      ['Post-ID',      post.id ?? '—'],
+      ['Link',         post.link_url ?? '—'],
+    ],
+    styles:      { fontSize: 8, cellPadding: 2 },
+    headStyles:  { fillColor: [22, 27, 34], textColor: 255, fontStyle: 'bold' },
+    columnStyles: { 0: { cellWidth: 45, fontStyle: 'bold' } },
+  })
+
+  let y = doc.lastAutoTable.finalY + 8
+
+  if (post.content) {
+    doc.setFontSize(10)
+    doc.setTextColor(40)
+    doc.text('Beitragstext:', 14, y)
+    y += 5
+    doc.setFontSize(9)
+    doc.setTextColor(60)
+    const lines = doc.splitTextToSize(post.content, 182)
+    doc.text(lines, 14, y)
+    y += lines.length * 4.5 + 8
+  }
+
+  if (post.media_url) {
+    if (y > 220) { doc.addPage(); y = 20 }
+    const imgData = await fetchImageAsBase64(post.media_url)
+    if (imgData) {
+      try {
+        const imgProps = doc.getImageProperties(imgData)
+        const maxW = 120
+        const h = Math.min(Math.round(maxW * imgProps.height / imgProps.width), 90)
+        const fmt2 = imgData.includes('data:image/png') ? 'PNG' : 'JPEG'
+        doc.addImage(imgData, fmt2, 14, y, maxW, h)
+        y += h + 6
+      } catch {
+        doc.setFontSize(8)
+        doc.setTextColor(120)
+        doc.text(`[Bild-URL: ${post.media_url}]`, 14, y)
+        y += 8
+      }
+    } else {
+      doc.setFontSize(8)
+      doc.setTextColor(120)
+      doc.text(`[Bild-URL: ${post.media_url}]`, 14, y)
+      y += 8
+    }
+  }
+
+  addPdfWatermarkAndFooter(doc, { exportId, moderatorEmail, exportedAt })
+  doc.save(`feed-beitrag-${meldung.id.slice(0, 8)}.pdf`)
 }
 
 function AudioPlayer({ src }) {
@@ -445,8 +538,9 @@ export default function MeldungDetail() {
   const [auditLogs,     setAuditLogs]     = useState([])
   const [liveMessages,    setLiveMessages]    = useState([])
   const [feedPost,        setFeedPost]        = useState(null)
-  const [feedPostLoaded,  setFeedPostLoaded]  = useState(false)
-  const [feedLightbox,    setFeedLightbox]    = useState(null)
+  const [feedPostLoaded,   setFeedPostLoaded]   = useState(false)
+  const [feedLightbox,     setFeedLightbox]     = useState(null)
+  const [exportingFeedPdf, setExportingFeedPdf] = useState(false)
   const hasLoggedIp = useRef(false)
 
   useEffect(() => {
@@ -831,7 +925,36 @@ export default function MeldungDetail() {
         {/* Feed-Post Vorschau */}
         {meldung.typ === 'feed_meldung' && (
           <div className="p-5 rounded-2xl" style={card}>
-            <p className="text-xs text-gray-500 mb-3">Gemeldeter Feed-Beitrag</p>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs text-gray-500">Gemeldeter Feed-Beitrag</p>
+              {displayFeedPost && (
+                <button
+                  disabled={exportingFeedPdf}
+                  onClick={async () => {
+                    setExportingFeedPdf(true)
+                    const exportedAt = new Date().toISOString()
+                    const { data: exportRow, error } = await supabase.from('export_log').insert({
+                      export_type: 'feed_post_pdf',
+                      exported_by: session?.user?.id,
+                      report_id:   meldung.id,
+                    }).select('id').single()
+                    if (error) console.error('[Export] feed_post_pdf:', error)
+                    const exportId = exportRow?.id ?? 'N/A'
+                    supabase.from('moderation_audit_log').insert({
+                      moderator_id:    session?.user?.id,
+                      moderator_email: session?.user?.email,
+                      report_id:       meldung.id,
+                      action:          'exported_feed_post',
+                    }).then(({ error: e }) => { if (e) console.error('[Audit] exported_feed_post:', e) })
+                    await exportFeedPostPdf(meldung, displayFeedPost, { exportId, moderatorEmail: session?.user?.email, exportedAt })
+                    setExportingFeedPdf(false)
+                  }}
+                  className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all disabled:opacity-40"
+                  style={{ background: 'rgba(38,140,251,0.12)', border: '1px solid rgba(38,140,251,0.25)', color: '#7dd3fc' }}>
+                  {exportingFeedPdf ? '…' : 'PDF ↓'}
+                </button>
+              )}
+            </div>
 
             {!feedPostLoaded && meldung.source_post_id ? (
               <p className="text-sm text-gray-600 italic">Beitrag wird geladen…</p>
