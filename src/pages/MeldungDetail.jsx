@@ -19,9 +19,22 @@ const ACTION_LABELS = {
   opened_chat:        'Chat-Verlauf geöffnet',
   exported_chat:      'Export erstellt',
   exported_feed_post: 'Feed-Beitrag gesichert (PDF)',
+  deleted_feed_post:  'Feed-Beitrag aus Feed entfernt',
   viewed_ip:          'IP-Adresse eingesehen',
   suspended_user:     'Benutzer-Status geändert',
 }
+
+const DELETE_REASONS = [
+  'Hassrede',
+  'Sexueller Inhalt',
+  'Gewalt / Bedrohung',
+  'Spam',
+  'Falsche Informationen',
+  'Urheberrechtsverletzung',
+  'Belästigung / Mobbing',
+  'Gegen Community-Richtlinien',
+  'Sonstiges',
+]
 
 const AUDIT_PREVIEW = 3
 
@@ -538,9 +551,12 @@ export default function MeldungDetail() {
   const [auditLogs,     setAuditLogs]     = useState([])
   const [liveMessages,    setLiveMessages]    = useState([])
   const [feedPost,        setFeedPost]        = useState(null)
-  const [feedPostLoaded,   setFeedPostLoaded]   = useState(false)
-  const [feedLightbox,     setFeedLightbox]     = useState(null)
-  const [exportingFeedPdf, setExportingFeedPdf] = useState(false)
+  const [feedPostLoaded,    setFeedPostLoaded]    = useState(false)
+  const [feedLightbox,      setFeedLightbox]      = useState(null)
+  const [exportingFeedPdf,  setExportingFeedPdf]  = useState(false)
+  const [showDeleteSection, setShowDeleteSection] = useState(false)
+  const [deleteReason,      setDeleteReason]      = useState('')
+  const [deletingPost,      setDeletingPost]      = useState(false)
   const hasLoggedIp = useRef(false)
 
   useEffect(() => {
@@ -631,7 +647,7 @@ export default function MeldungDetail() {
           .select(`
             id, typ, status, beschreibung, created_at, updated_at,
             admin_notizen, gemeldeter_user_name, melder_user_name, abschlussgrund,
-            gemeldeter_last_login, gemeldeter_ip, source_post_id, post_snapshot,
+            gemeldeter_last_login, gemeldeter_ip, source_post_id, post_snapshot, is_auto_deactivated,
             melder:user_id(id, name),
             gemeldeter:gemeldeter_user_id(id, name)
           `)
@@ -809,6 +825,51 @@ export default function MeldungDetail() {
     }).then(({ error: e }) => { if (e) console.error('[Audit] opened_chat:', e) })
   }
 
+  const handleDeletePost = async () => {
+    if (!deleteReason || deletingPost || !meldung?.source_post_id) return
+    setDeletingPost(true)
+
+    // Post im Feed deaktivieren (soft-hide)
+    const { error: hideErr } = await supabase
+      .from('posts').update({ is_hidden: true }).eq('id', meldung.source_post_id)
+    if (hideErr) { console.error('[DeletePost] Verstecken:', hideErr); setDeletingPost(false); return }
+
+    // Service-Chat mit Gemeldeten suchen oder anlegen
+    let chat = serviceChats.find(c => c.participant_role === 'gemeldeter' && c.is_active)
+    if (!chat && meldung.gemeldeter?.id) {
+      const { data: newChat, error: chatErr } = await supabase
+        .from('service_chats')
+        .insert({ meldung_id: id, participant_id: meldung.gemeldeter.id, participant_role: 'gemeldeter' })
+        .select('id, participant_id, participant_role, is_active, created_at, closed_at')
+        .single()
+      if (chatErr) console.error('[DeletePost] Chat anlegen:', chatErr)
+      else { chat = newChat; setServiceChats(prev => [...prev, newChat]) }
+    }
+
+    // Benachrichtigung an Beitragsautor senden
+    if (chat?.id) {
+      const text = `Dein Beitrag im Feed wurde von unserem Moderationsteam entfernt.\n\nGrund: ${deleteReason}\n\nBei Fragen kannst du uns hier direkt antworten.`
+      supabase.from('service_messages').insert({
+        chat_id: chat.id, sender_id: session?.user?.id, sender_role: 'admin', text,
+      }).then(({ error: e }) => { if (e) console.error('[DeletePost] Benachrichtigung:', e) })
+    }
+
+    // Audit-Log
+    supabase.from('moderation_audit_log').insert({
+      moderator_id:    session?.user?.id,
+      moderator_email: session?.user?.email,
+      report_id:       id,
+      action:          'deleted_feed_post',
+      reason:          deleteReason,
+    }).then(({ error: e }) => { if (e) console.error('[Audit] deleted_feed_post:', e) })
+
+    // Lokaler State: Post als versteckt markieren
+    setFeedPost(prev => prev ? { ...prev, is_hidden: true } : prev)
+    setShowDeleteSection(false)
+    setDeleteReason('')
+    setDeletingPost(false)
+  }
+
   if (loading) return <div className="p-8 text-gray-400 text-sm">Lade Meldung…</div>
   if (error && !meldung) return <div className="p-8 text-red-400 text-sm">Fehler: {error}</div>
   if (!meldung) return null
@@ -925,37 +986,58 @@ export default function MeldungDetail() {
         {/* Feed-Post Vorschau */}
         {meldung.typ === 'feed_meldung' && (
           <div className="p-5 rounded-2xl" style={card}>
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs text-gray-500">Gemeldeter Feed-Beitrag</p>
-              {displayFeedPost && (
-                <button
-                  disabled={exportingFeedPdf}
-                  onClick={async () => {
-                    setExportingFeedPdf(true)
-                    const exportedAt = new Date().toISOString()
-                    const { data: exportRow, error } = await supabase.from('export_log').insert({
-                      export_type: 'feed_post_pdf',
-                      exported_by: session?.user?.id,
-                      report_id:   meldung.id,
-                    }).select('id').single()
-                    if (error) console.error('[Export] feed_post_pdf:', error)
-                    const exportId = exportRow?.id ?? 'N/A'
-                    supabase.from('moderation_audit_log').insert({
-                      moderator_id:    session?.user?.id,
-                      moderator_email: session?.user?.email,
-                      report_id:       meldung.id,
-                      action:          'exported_feed_post',
-                    }).then(({ error: e }) => { if (e) console.error('[Audit] exported_feed_post:', e) })
-                    await exportFeedPostPdf(meldung, displayFeedPost, { exportId, moderatorEmail: session?.user?.email, exportedAt })
-                    setExportingFeedPdf(false)
-                  }}
-                  className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all disabled:opacity-40"
-                  style={{ background: 'rgba(38,140,251,0.12)', border: '1px solid rgba(38,140,251,0.25)', color: '#7dd3fc' }}>
-                  {exportingFeedPdf ? '…' : 'PDF ↓'}
-                </button>
-              )}
+
+            {/* Header-Zeile */}
+            <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-gray-500">Gemeldeter Feed-Beitrag</p>
+                {meldung.is_auto_deactivated && (
+                  <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                    style={{ background: 'rgba(239,68,68,0.12)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.25)' }}>
+                    Auto-deaktiviert · 10+ Meldungen
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {displayFeedPost && (
+                  <button
+                    disabled={exportingFeedPdf}
+                    onClick={async () => {
+                      setExportingFeedPdf(true)
+                      const exportedAt = new Date().toISOString()
+                      const { data: exportRow, error } = await supabase.from('export_log').insert({
+                        export_type: 'feed_post_pdf',
+                        exported_by: session?.user?.id,
+                        report_id:   meldung.id,
+                      }).select('id').single()
+                      if (error) console.error('[Export] feed_post_pdf:', error)
+                      const exportId = exportRow?.id ?? 'N/A'
+                      supabase.from('moderation_audit_log').insert({
+                        moderator_id:    session?.user?.id,
+                        moderator_email: session?.user?.email,
+                        report_id:       meldung.id,
+                        action:          'exported_feed_post',
+                      }).then(({ error: e }) => { if (e) console.error('[Audit] exported_feed_post:', e) })
+                      await exportFeedPostPdf(meldung, displayFeedPost, { exportId, moderatorEmail: session?.user?.email, exportedAt })
+                      setExportingFeedPdf(false)
+                    }}
+                    className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all disabled:opacity-40"
+                    style={{ background: 'rgba(38,140,251,0.12)', border: '1px solid rgba(38,140,251,0.25)', color: '#7dd3fc' }}>
+                    {exportingFeedPdf ? '…' : 'PDF ↓'}
+                  </button>
+                )}
+                {feedPost && !feedPost.is_hidden && (
+                  <button
+                    onClick={() => { setShowDeleteSection(s => !s); setDeleteReason('') }}
+                    className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all"
+                    style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}>
+                    {showDeleteSection ? 'Abbrechen' : 'Aus Feed entfernen'}
+                  </button>
+                )}
+              </div>
             </div>
 
+            {/* Beitrag laden / Zustände */}
             {!feedPostLoaded && meldung.source_post_id ? (
               <p className="text-sm text-gray-600 italic">Beitrag wird geladen…</p>
             ) : !displayFeedPost && !meldung.source_post_id ? (
@@ -981,7 +1063,7 @@ export default function MeldungDetail() {
                     {displayFeedPost.is_hidden && (
                       <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
                         style={{ background: 'rgba(239,68,68,0.15)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.3)' }}>
-                        Versteckt
+                        Aus Feed entfernt
                       </span>
                     )}
                     {displayFeedPost.type && (
@@ -1023,10 +1105,42 @@ export default function MeldungDetail() {
                   </a>
                 )}
 
-                {/* Post-ID für Referenz */}
+                {/* Post-ID */}
                 {displayFeedPost.id && (
                   <p className="text-[10px] text-gray-700 font-mono">Post-ID: {displayFeedPost.id}</p>
                 )}
+              </div>
+            )}
+
+            {/* Löschen-Sektion */}
+            {showDeleteSection && (
+              <div className="mt-4 pt-4 border-t flex flex-col gap-2" style={{ borderColor: 'rgba(239,68,68,0.2)' }}>
+                <p className="text-xs font-semibold" style={{ color: '#f87171' }}>
+                  Beitrag aus Feed entfernen — User wird automatisch per Service-Chat benachrichtigt
+                </p>
+                <select
+                  value={deleteReason}
+                  onChange={e => setDeleteReason(e.target.value)}
+                  className="px-3 py-2 rounded-xl text-sm text-white bg-navy border outline-none transition-colors"
+                  style={{ borderColor: 'rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.06)' }}>
+                  <option value="">— Löschgrund wählen —</option>
+                  {DELETE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleDeletePost}
+                    disabled={!deleteReason || deletingPost}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-white transition-all disabled:opacity-40"
+                    style={{ background: 'linear-gradient(90deg, #dc2626, #b91c1c)' }}>
+                    {deletingPost ? '…' : 'Entfernen & User benachrichtigen'}
+                  </button>
+                  <button
+                    onClick={() => { setShowDeleteSection(false); setDeleteReason('') }}
+                    className="px-4 py-2 rounded-xl text-xs font-medium text-gray-400 hover:text-white transition-all"
+                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                    Abbrechen
+                  </button>
+                </div>
               </div>
             )}
 
