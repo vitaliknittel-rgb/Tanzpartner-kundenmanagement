@@ -829,32 +829,23 @@ export default function MeldungDetail() {
     if (!deleteReason || deletingPost || !meldung?.source_post_id) return
     setDeletingPost(true)
 
-    // Post im Feed deaktivieren (soft-hide)
-    const { error: hideErr } = await supabase
-      .from('posts').update({ is_hidden: true }).eq('id', meldung.source_post_id)
-    if (hideErr) { console.error('[DeletePost] Verstecken:', hideErr); setDeletingPost(false); return }
+    // SECURITY DEFINER RPC – umgeht RLS auf posts + service_chats + service_messages
+    const { data: chatId, error: deleteErr } = await supabase.rpc('admin_delete_feed_post', {
+      p_post_id:    meldung.source_post_id,
+      p_meldung_id: id,
+      p_reason:     deleteReason,
+      p_admin_id:   session?.user?.id ?? null,
+    })
 
-    // Service-Chat mit Gemeldeten suchen oder anlegen
-    let chat = serviceChats.find(c => c.participant_role === 'gemeldeter' && c.is_active)
-    if (!chat && meldung.gemeldeter?.id) {
-      const { data: newChat, error: chatErr } = await supabase
-        .from('service_chats')
-        .insert({ meldung_id: id, participant_id: meldung.gemeldeter.id, participant_role: 'gemeldeter' })
-        .select('id, participant_id, participant_role, is_active, created_at, closed_at')
-        .single()
-      if (chatErr) console.error('[DeletePost] Chat anlegen:', chatErr)
-      else { chat = newChat; setServiceChats(prev => [...prev, newChat]) }
+    setDeletingPost(false)
+
+    if (deleteErr) {
+      console.error('[DeletePost]', deleteErr)
+      setError('Fehler beim Entfernen: ' + deleteErr.message)
+      return
     }
 
-    // Benachrichtigung an Beitragsautor senden
-    if (chat?.id) {
-      const text = `Dein Beitrag im Feed wurde von unserem Moderationsteam entfernt.\n\nGrund: ${deleteReason}\n\nBei Fragen kannst du uns hier direkt antworten.`
-      supabase.from('service_messages').insert({
-        chat_id: chat.id, sender_id: session?.user?.id, sender_role: 'admin', text,
-      }).then(({ error: e }) => { if (e) console.error('[DeletePost] Benachrichtigung:', e) })
-    }
-
-    // Audit-Log
+    // Audit-Log (fire-and-forget)
     supabase.from('moderation_audit_log').insert({
       moderator_id:    session?.user?.id,
       moderator_email: session?.user?.email,
@@ -863,11 +854,17 @@ export default function MeldungDetail() {
       reason:          deleteReason,
     }).then(({ error: e }) => { if (e) console.error('[Audit] deleted_feed_post:', e) })
 
-    // Lokaler State: Post als versteckt markieren
+    // Neu angelegten Service-Chat in lokalen State übernehmen
+    if (chatId && !serviceChats.some(c => c.id === chatId)) {
+      supabase.from('service_chats')
+        .select('id, participant_id, participant_role, is_active, created_at, closed_at')
+        .eq('id', chatId).single()
+        .then(({ data }) => { if (data) setServiceChats(prev => [...prev, data]) }, () => {})
+    }
+
     setFeedPost(prev => prev ? { ...prev, is_hidden: true } : prev)
     setShowDeleteSection(false)
     setDeleteReason('')
-    setDeletingPost(false)
   }
 
   if (loading) return <div className="p-8 text-gray-400 text-sm">Lade Meldung…</div>
