@@ -444,6 +444,7 @@ export default function MeldungDetail() {
   const [showChat,      setShowChat]      = useState(false)
   const [auditLogs,     setAuditLogs]     = useState([])
   const [liveMessages,  setLiveMessages]  = useState([])
+  const [feedPost,      setFeedPost]      = useState(null)
   const hasLoggedIp = useRef(false)
 
   useEffect(() => {
@@ -497,6 +498,17 @@ export default function MeldungDetail() {
     return () => { supabase.removeChannel(channel) }
   }, [showChat, meldung?.melder?.id, meldung?.gemeldeter?.id, meldung?.status, meldung?.created_at, id])
 
+  // Feed-Post laden wenn typ=feed_meldung und source_post_id vorhanden
+  useEffect(() => {
+    if (!meldung?.source_post_id) return
+    supabase
+      .from('posts')
+      .select('id, type, content, media_url, link_url, is_hidden, created_at, author:users!posts_author_id_fkey(name)')
+      .eq('id', meldung.source_post_id)
+      .maybeSingle()
+      .then(({ data }) => setFeedPost(data), (err) => console.error('[FeedPost] laden:', err))
+  }, [meldung?.source_post_id])
+
   // Audit: viewed_ip – einmalig wenn Seite geladen und IP vorhanden
   useEffect(() => {
     if (!session?.user?.id || !meldung?.gemeldeter_ip || hasLoggedIp.current) return
@@ -520,7 +532,7 @@ export default function MeldungDetail() {
           .select(`
             id, typ, status, beschreibung, created_at, updated_at,
             admin_notizen, gemeldeter_user_name, abschlussgrund,
-            gemeldeter_last_login, gemeldeter_ip,
+            gemeldeter_last_login, gemeldeter_ip, source_post_id,
             melder:user_id(id, name),
             gemeldeter:gemeldeter_user_id(id, name)
           `)
@@ -790,6 +802,75 @@ export default function MeldungDetail() {
           <p className="text-xs text-gray-500 mb-2">Beschreibung des Nutzers</p>
           <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{meldung.beschreibung}</p>
         </div>
+
+        {/* Feed-Post Vorschau */}
+        {meldung.typ === 'feed_meldung' && (
+          <div className="p-5 rounded-2xl" style={card}>
+            <p className="text-xs text-gray-500 mb-3">Gemeldeter Feed-Beitrag</p>
+
+            {!feedPost ? (
+              <p className="text-sm text-gray-600 italic">
+                {meldung.source_post_id ? 'Beitrag wird geladen…' : 'Kein Beitrag verknüpft.'}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {/* Kopfzeile */}
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-white">{feedPost.author?.name ?? '—'}</span>
+                    <span className="text-xs text-gray-600">·</span>
+                    <span className="text-xs text-gray-500">{fmt(feedPost.created_at)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {feedPost.is_hidden && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                        style={{ background: 'rgba(239,68,68,0.15)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.3)' }}>
+                        Versteckt
+                      </span>
+                    )}
+                    <span className="text-xs px-2 py-0.5 rounded-full capitalize"
+                      style={{ background: 'rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.5)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                      {feedPost.type}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Bild */}
+                {feedPost.media_url && (
+                  <img
+                    src={feedPost.media_url}
+                    alt="Beitragsbild"
+                    className="rounded-xl object-cover w-full cursor-pointer"
+                    style={{ maxHeight: 320 }}
+                    onClick={() => setLightbox(feedPost.media_url)}
+                  />
+                )}
+
+                {/* Text-Inhalt */}
+                {feedPost.content && (
+                  <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{feedPost.content}</p>
+                )}
+
+                {/* Link */}
+                {feedPost.link_url && (
+                  <a
+                    href={feedPost.link_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all hover:brightness-110 truncate"
+                    style={{ background: 'rgba(38,140,251,0.1)', border: '1px solid rgba(38,140,251,0.25)', color: '#93c5fd', maxWidth: '100%' }}
+                  >
+                    <span>🔗</span>
+                    <span className="truncate">{feedPost.link_url}</span>
+                  </a>
+                )}
+
+                {/* Post-ID für Referenz */}
+                <p className="text-[10px] text-gray-700 font-mono">Post-ID: {feedPost.id}</p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Chat-Verlauf – Button + Audit-Log */}
         <div className="rounded-2xl overflow-hidden" style={card}>
