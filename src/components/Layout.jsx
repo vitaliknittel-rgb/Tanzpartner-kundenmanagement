@@ -21,18 +21,6 @@ const FEED_GRUENDE = [
   'Urheberrechtsverletzung', 'Gewalt', 'Sonstiges',
 ]
 
-const FEED_GRUENDE = [
-  'Betrug / Scam',
-  'Sexueller Inhalt',
-  'Belästigung',
-  'Hassrede',
-  'Spam',
-  'Falsches Profil',
-  'Urheberrechtsverletzung',
-  'Gewalt',
-  'Sonstiges',
-]
-
 const navItemStyle = (active) =>
   active
     ? { background: 'linear-gradient(90deg, rgba(226,40,128,0.2) 0%, rgba(38,140,251,0.2) 100%)', border: '1px solid rgba(226,40,128,0.3)' }
