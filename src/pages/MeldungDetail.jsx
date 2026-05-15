@@ -612,6 +612,15 @@ export default function MeldungDetail() {
     setSaving(false)
     if (saveErr) { setError('Speichern fehlgeschlagen: ' + saveErr.message); return }
 
+    // Service-Chats schließen wenn Ticket erledigt → triggert Realtime beim Nutzer
+    if (status === 'erledigt' && meldung.status !== 'erledigt') {
+      supabase.from('service_chats')
+        .update({ is_active: false, closed_at: new Date().toISOString() })
+        .eq('meldung_id', id)
+        .eq('is_active', true)
+        .then(({ error: e }) => { if (e) console.error('[ServiceChat] Auto-close on erledigt:', e) })
+    }
+
     setMeldung(prev => ({ ...prev, ...updates }))
     setSaved(true)
     setTimeout(() => setSaved(false), 3000)
