@@ -3,8 +3,8 @@ import { NavLink, useNavigate, useLocation }    from 'react-router-dom'
 import { supabase }                              from '../lib/supabase'
 
 const MELDUNG_TYPEN = [
-  { typ: 'sexuelle_belaestigung', label: 'Sexuelle Belästigung' },
   { typ: 'gewaltandrohung',       label: 'Gewaltandrohung' },
+  { typ: 'sexuelle_belaestigung', label: 'Sexuelle Belästigung' },
   { typ: 'stalking',              label: 'Stalking' },
   { typ: 'betrug',                label: 'Betrug' },
   { typ: 'hassrede',              label: 'Hassrede' },
@@ -13,6 +13,18 @@ const MELDUNG_TYPEN = [
   { typ: 'minderjaehrigenschutz', label: 'Minderjährigenschutz' },
   { typ: 'sonstiges',             label: 'Sonstiges' },
   { typ: 'fehler',                label: 'Technischer Fehler' },
+]
+
+const FEED_GRUENDE = [
+  'Betrug / Scam',
+  'Sexueller Inhalt',
+  'Belästigung',
+  'Hassrede',
+  'Spam',
+  'Falsches Profil',
+  'Urheberrechtsverletzung',
+  'Gewalt',
+  'Sonstiges',
 ]
 
 const navItemStyle = (active) =>
@@ -24,7 +36,7 @@ function Badge({ count }) {
   if (!count) return null
   return (
     <span
-      className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center"
+      className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center flex-shrink-0"
       style={{ background: 'linear-gradient(90deg, #E22880, #268CFB)', color: '#fff' }}
     >
       {count > 99 ? '99+' : count}
@@ -38,6 +50,9 @@ export default function Layout({ children }) {
 
   const isMeldungenActive = location.pathname.startsWith('/meldungen')
   const [meldungenOpen, setMeldungenOpen] = useState(isMeldungenActive)
+  const [feedOpen,      setFeedOpen]      = useState(
+    isMeldungenActive && location.search.includes('typ=feed_meldung')
+  )
 
   const [neuCount,     setNeuCount]     = useState(0)
   const [feedNeuCount, setFeedNeuCount] = useState(0)
@@ -74,11 +89,14 @@ export default function Layout({ children }) {
     navigate('/login', { replace: true })
   }
 
+  const isActive = (path, search = '') =>
+    location.pathname === path && location.search === search
+
   return (
     <div className="min-h-screen bg-navy flex">
       {/* Sidebar */}
       <aside
-        className="w-56 flex-shrink-0 flex flex-col"
+        className="w-60 flex-shrink-0 flex flex-col"
         style={{ background: '#161b22', borderRight: '1px solid rgba(255,255,255,0.08)' }}
       >
         <div className="px-5 py-6 border-b" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
@@ -86,17 +104,17 @@ export default function Layout({ children }) {
           <h1 className="text-base font-bold text-white mt-0.5">Kundenmanagement</h1>
         </div>
 
-        <nav className="flex-1 px-3 py-4 flex flex-col gap-1">
+        <nav className="flex-1 px-3 py-4 flex flex-col gap-1 overflow-y-auto">
           {/* Dashboard */}
           <NavLink
             to="/"
             end
-            className={({ isActive }) =>
+            className={({ isActive: a }) =>
               `flex items-center px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                isActive ? 'text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
+                a ? 'text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
               }`
             }
-            style={({ isActive }) => navItemStyle(isActive)}
+            style={({ isActive: a }) => navItemStyle(a)}
           >
             Dashboard
           </NavLink>
@@ -122,13 +140,14 @@ export default function Layout({ children }) {
 
             {meldungenOpen && (
               <div className="mt-1 ml-3 flex flex-col gap-0.5">
+
                 {/* Alle Meldungen */}
                 <NavLink
                   to="/meldungen"
                   end
-                  className={({ isActive }) =>
+                  className={({ isActive: a }) =>
                     `flex items-center px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                      isActive && !location.search ? 'text-white bg-white/8' : 'text-gray-500 hover:text-white hover:bg-white/5'
+                      a && !location.search ? 'text-white bg-white/8' : 'text-gray-500 hover:text-white hover:bg-white/5'
                     }`
                   }
                 >
@@ -136,37 +155,69 @@ export default function Layout({ children }) {
                   <Badge count={neuCount} />
                 </NavLink>
 
-                {/* Feed-Meldungen */}
-                {(() => {
-                  const isActive = location.pathname === '/meldungen' && location.search === '?typ=feed_meldung'
-                  return (
-                    <NavLink
-                      to="/meldungen?typ=feed_meldung"
-                      className={`flex items-center px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                        isActive ? 'text-white bg-white/8' : 'text-gray-500 hover:text-white hover:bg-white/5'
-                      }`}
-                    >
-                      Feed
+                {/* Feed – eigener aufklappbarer Block */}
+                <div>
+                  <button
+                    onClick={() => setFeedOpen(o => !o)}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                      location.search.includes('typ=feed_meldung') ? 'text-white bg-white/8' : 'text-gray-500 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    <span>Feed</span>
+                    <div className="flex items-center gap-1.5">
                       <Badge count={feedNeuCount} />
-                    </NavLink>
-                  )
-                })()}
+                      <span className="text-[10px] text-gray-600 transition-transform duration-200"
+                        style={{ display: 'inline-block', transform: feedOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>
+                        ›
+                      </span>
+                    </div>
+                  </button>
 
-                {/* Übrige Typen */}
-                {MELDUNG_TYPEN.map(({ typ, label }) => {
-                  const isActive = location.pathname === '/meldungen' && location.search === `?typ=${typ}`
-                  return (
-                    <NavLink
-                      key={typ}
-                      to={`/meldungen?typ=${typ}`}
-                      className={`flex items-center px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                        isActive ? 'text-white bg-white/8' : 'text-gray-500 hover:text-white hover:bg-white/5'
-                      }`}
-                    >
-                      {label}
-                    </NavLink>
-                  )
-                })}
+                  {feedOpen && (
+                    <div className="mt-0.5 ml-3 flex flex-col gap-0.5">
+                      {/* Alle Feed-Meldungen */}
+                      <NavLink
+                        to="/meldungen?typ=feed_meldung"
+                        className={`flex items-center px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                          isActive('/meldungen', '?typ=feed_meldung') ? 'text-white bg-white/8' : 'text-gray-500 hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        Alle Feed
+                        <Badge count={feedNeuCount} />
+                      </NavLink>
+
+                      {/* Feed-Unterkategorien nach Melde-Grund */}
+                      {FEED_GRUENDE.map(grund => (
+                        <NavLink
+                          key={grund}
+                          to={`/meldungen?typ=feed_meldung&grund=${encodeURIComponent(grund)}`}
+                          className={`flex items-center px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                            isActive('/meldungen', `?typ=feed_meldung&grund=${encodeURIComponent(grund)}`)
+                              ? 'text-white bg-white/8'
+                              : 'text-gray-500 hover:text-white hover:bg-white/5'
+                          }`}
+                        >
+                          {grund}
+                        </NavLink>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Übrige Meldungstypen */}
+                {MELDUNG_TYPEN.map(({ typ, label }) => (
+                  <NavLink
+                    key={typ}
+                    to={`/meldungen?typ=${typ}`}
+                    className={({ isActive: a }) =>
+                      `flex items-center px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                        a ? 'text-white bg-white/8' : 'text-gray-500 hover:text-white hover:bg-white/5'
+                      }`
+                    }
+                  >
+                    {label}
+                  </NavLink>
+                ))}
               </div>
             )}
           </div>

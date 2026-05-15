@@ -10,8 +10,8 @@ export default function Meldungen() {
   const navigate                    = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
 
-  // filterTyp kommt immer direkt aus der URL – so reagiert er auf Sidebar-Links
-  const filterTyp = searchParams.get('typ') ?? 'alle'
+  const filterTyp    = searchParams.get('typ')   ?? 'alle'
+  const filterGrund  = searchParams.get('grund') ?? ''
 
   const [meldungen, setMeldungen] = useState([])
   const [loading,   setLoading]   = useState(true)
@@ -27,18 +27,19 @@ export default function Meldungen() {
 
     let query = supabase
       .from('meldungen')
-      .select('id, typ, status, beschreibung, created_at, gemeldeter_user_name, melder:user_id(name)')
+      .select('id, typ, status, beschreibung, feed_reason, created_at, gemeldeter_user_name, melder:user_id(name)')
       .order('created_at', { ascending: false })
 
-    if (filterStatus !== 'alle') query = query.eq('status', filterStatus)
-    if (filterTyp    !== 'alle') query = query.eq('typ',    filterTyp)
+    if (filterStatus !== 'alle') query = query.eq('status',      filterStatus)
+    if (filterTyp    !== 'alle') query = query.eq('typ',         filterTyp)
+    if (filterGrund)             query = query.eq('feed_reason', filterGrund)
 
     const { data, error: qErr } = await query
     if (qErr) { setError(qErr.message); setLoading(false); return }
 
     setMeldungen(data ?? [])
     setLoading(false)
-  }, [filterStatus, filterTyp])
+  }, [filterStatus, filterTyp, filterGrund])
 
   useEffect(() => {
     load().then(undefined, (err) => setError(err.message))
