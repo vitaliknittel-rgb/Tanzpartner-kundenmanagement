@@ -109,6 +109,19 @@ export default function Layout({ children }) {
             Dashboard
           </NavLink>
 
+          {/* Benutzer */}
+          <NavLink
+            to="/benutzer"
+            className={({ isActive: a }) =>
+              `flex items-center px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                a ? 'text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`
+            }
+            style={({ isActive: a }) => navItemStyle(a)}
+          >
+            Benutzer
+          </NavLink>
+
           {/* Meldungen – aufklappbar */}
           <div>
             <button
