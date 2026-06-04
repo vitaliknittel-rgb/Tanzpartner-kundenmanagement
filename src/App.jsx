@@ -7,6 +7,7 @@ import Dashboard                              from './pages/Dashboard'
 import Meldungen                              from './pages/Meldungen'
 import MeldungDetail                          from './pages/MeldungDetail'
 import Benutzer                               from './pages/Benutzer'
+import Prueffaelle                            from './pages/Prueffaelle'
 
 function ProtectedRoute({ session, children }) {
   if (!session) return <Navigate to="/login" replace />
@@ -52,6 +53,7 @@ export default function App() {
                   <Route path="/meldungen"      element={<Meldungen />} />
                   <Route path="/meldungen/:id"  element={<MeldungDetail />} />
                   <Route path="/benutzer"        element={<Benutzer />} />
+                  <Route path="/prueffaelle"    element={<Prueffaelle />} />
                   <Route path="*"               element={<Navigate to="/" replace />} />
                 </Routes>
               </Layout>

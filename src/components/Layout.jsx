@@ -47,8 +47,9 @@ export default function Layout({ children }) {
   const [meldungenOpen, setMeldungenOpen] = useState(isMeldungenActive)
   const [feedOpen,      setFeedOpen]      = useState(isFeedActive)
 
-  const [neuCount,     setNeuCount]     = useState(0)
-  const [feedNeuCount, setFeedNeuCount] = useState(0)
+  const [neuCount,       setNeuCount]       = useState(0)
+  const [feedNeuCount,   setFeedNeuCount]   = useState(0)
+  const [prueffallCount, setPrueffallCount] = useState(0)
   const channelRef = useRef(null)
 
   useEffect(() => {
@@ -59,6 +60,9 @@ export default function Layout({ children }) {
       ])
       setNeuCount(allRes.count ?? 0)
       setFeedNeuCount(feedRes.count ?? 0)
+      // Offene Prüffälle zählen
+      const { data: pf } = await supabase.rpc('admin_get_refund_cases')
+      setPrueffallCount((pf ?? []).filter(c => c.refund_status === 'pending').length)
     }
     load().then(undefined, (err) => console.error('[Layout] Badge-Load:', err))
 
@@ -120,6 +124,20 @@ export default function Layout({ children }) {
             style={({ isActive: a }) => navItemStyle(a)}
           >
             Benutzer
+          </NavLink>
+
+          {/* Prüffälle */}
+          <NavLink
+            to="/prueffaelle"
+            className={({ isActive: a }) =>
+              `flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                a ? 'text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`
+            }
+            style={({ isActive: a }) => navItemStyle(a)}
+          >
+            <span>Prüffälle</span>
+            <Badge count={prueffallCount} />
           </NavLink>
 
           {/* Meldungen – aufklappbar */}
