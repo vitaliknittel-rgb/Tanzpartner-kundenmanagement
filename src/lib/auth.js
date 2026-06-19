@@ -6,8 +6,10 @@ import { supabase } from './supabase'
  */
 export async function logout() {
   // Lösche JWT-Cookie
-  const domain = import.meta.env.VITE_COOKIE_DOMAIN || 'localhost'
-  document.cookie = `__tp_jwt=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${domain};`
+  // Nur in production: domain setzen (localhost Cookies haben keine domain)
+  const domain = import.meta.env.MODE === 'production' ? import.meta.env.VITE_COOKIE_DOMAIN : ''
+  const domainPart = domain ? `; domain=${domain}` : ''
+  document.cookie = `__tp_jwt=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/${domainPart}`
 
   // Logout in Supabase
   const { error } = await supabase.auth.signOut()
