@@ -1,6 +1,7 @@
 import { useState, useEffect }                from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { supabase }                           from './lib/supabase'
+import { useAuthCookie }                      from './hooks/useAuthCookie'
 import Login                                  from './pages/Login'
 import Layout                                 from './components/Layout'
 import Dashboard                              from './pages/Dashboard'
@@ -14,8 +15,39 @@ function ProtectedRoute({ session, children }) {
   return children
 }
 
+function AppContent({ session }) {
+  // Überwache JWT-Cookie für Cross-Domain Logout
+  useAuthCookie()
+
+  return (
+    <Routes>
+      <Route
+        path="/login"
+        element={session ? <Navigate to="/" replace /> : <Login onLogin={() => {}} />}
+      />
+      <Route
+        path="/*"
+        element={
+          <ProtectedRoute session={session}>
+            <Layout>
+              <Routes>
+                <Route path="/"               element={<Dashboard />} />
+                <Route path="/meldungen"      element={<Meldungen />} />
+                <Route path="/meldungen/:id"  element={<MeldungDetail />} />
+                <Route path="/benutzer"        element={<Benutzer />} />
+                <Route path="/prueffaelle"    element={<Prueffaelle />} />
+                <Route path="*"               element={<Navigate to="/" replace />} />
+              </Routes>
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+    </Routes>
+  )
+}
+
 export default function App() {
-  const [session, setSession] = useState(undefined) // undefined = noch nicht geprüft
+  const [session, setSession] = useState(undefined)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -38,29 +70,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <Routes>
-        <Route
-          path="/login"
-          element={session ? <Navigate to="/" replace /> : <Login onLogin={() => {}} />}
-        />
-        <Route
-          path="/*"
-          element={
-            <ProtectedRoute session={session}>
-              <Layout>
-                <Routes>
-                  <Route path="/"               element={<Dashboard />} />
-                  <Route path="/meldungen"      element={<Meldungen />} />
-                  <Route path="/meldungen/:id"  element={<MeldungDetail />} />
-                  <Route path="/benutzer"        element={<Benutzer />} />
-                  <Route path="/prueffaelle"    element={<Prueffaelle />} />
-                  <Route path="*"               element={<Navigate to="/" replace />} />
-                </Routes>
-              </Layout>
-            </ProtectedRoute>
-          }
-        />
-      </Routes>
+      <AppContent session={session} />
     </BrowserRouter>
   )
 }

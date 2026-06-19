@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef }         from 'react'
 import { NavLink, useNavigate, useLocation }    from 'react-router-dom'
 import { supabase }                              from '../lib/supabase'
+import { logout }                                from '../lib/auth'
 
 const MELDUNG_TYPEN = [
   { typ: 'gewaltandrohung',       label: 'Gewaltandrohung' },
@@ -82,7 +83,7 @@ export default function Layout({ children }) {
   }, [])
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut()
+    await logout() // Löscht auch JWT-Cookie
     navigate('/login', { replace: true })
   }
 
